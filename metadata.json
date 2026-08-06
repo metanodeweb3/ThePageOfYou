@@ -1,0 +1,6 @@
+{
+  "name": "The Page of You",
+  "description": "Personalised name origins, custom acrostic poem generator, and cultural archive finding quotes in books, song lyrics, movie dialogue, video games, and fine art.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
