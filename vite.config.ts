@@ -1,22 +1,15 @@
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-import {defineConfig} from 'vite';
-
-export default defineConfig(() => {
-  return {
-    plugins: [react(), tailwindcss()],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
+{
+  "entities": {
+    "popular_names": {
+      "title": "Popular Names",
+      "description": "Dynamic tracking of searched names and featured popular names",
+      "properties": {
+        "name": { "type": "string", "description": "The person name" },
+        "searchCount": { "type": "number", "description": "Number of times searched" },
+        "featured": { "type": "boolean", "description": "Whether it's featured on popular list" },
+        "lastSearchedAt": { "type": "string", "description": "ISO timestamp of last search" }
       },
-    },
-    server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
-    },
-  };
-});
+      "required": ["name", "searchCount"]
+    }
+  }
+}

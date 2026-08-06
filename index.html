@@ -1,56 +1,26 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    
-    <!-- Primary SEO Meta Tags -->
-    <title>The Page of You — Personalised Name Origins, Acrostic Poetry & Cultural Archive</title>
-    <meta name="title" content="The Page of You — Personalised Name Origins, Acrostic Poetry & Cultural Archive" />
-    <meta name="description" content="Discover personalised name origins, custom acrostic poem generator, and cultural references across books, song lyrics, movie quotes, video games, and fine art." />
-    <meta name="keywords" content="personalised name meaning, acrostic poem generator, custom name poetry, name origin finder, song lyrics with my name, book quotes with my name, name history keepsake" />
-    <meta name="robots" content="index, follow" />
-    <meta name="author" content="The Page of You" />
-    <link rel="canonical" href="https://thepageofyou.com" />
+const AFFILIATE_TAG = import.meta.env.VITE_AMAZON_AFFILIATE_TAG || 'metanode-21';
 
-    <!-- Open Graph / Facebook / WhatsApp -->
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://thepageofyou.com" />
-    <meta property="og:title" content="The Page of You — Personalised Name Origins & Acrostic Poetry" />
-    <meta property="og:description" content="Discover personalised name origins, custom acrostic poem generator, and cultural references across books, song lyrics, movie quotes, video games, and fine art." />
-    <meta property="og:site_name" content="The Page of You" />
+export function getAmazonBookUrl(title: string, author?: string): string {
+  const query = `${title} ${author || ''} book`.trim();
+  return `https://www.amazon.com/s?k=${encodeURIComponent(query)}&tag=${AFFILIATE_TAG}&i=stripbooks`;
+}
 
-    <!-- Twitter -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="The Page of You — Personalised Name Origins & Acrostic Poetry" />
-    <meta name="twitter:description" content="Discover personalised name origins, custom acrostic poem generator, and cultural references across literature, music, and cinema." />
+export function getAmazonMusicUrl(title: string, artist?: string): string {
+  const query = `${title} ${artist || ''} song mp3`.trim();
+  return `https://www.amazon.com/s?k=${encodeURIComponent(query)}&tag=${AFFILIATE_TAG}&i=digital-music`;
+}
 
-    <!-- Schema.org JSON-LD Structured Data -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "The Page of You",
-      "url": "https://thepageofyou.com",
-      "description": "Personalised name origins, custom acrostic poetry generator, and cultural archive finding quotes in books, song lyrics, movie dialogue, video games, and fine art.",
-      "applicationCategory": "Cultural & Educational",
-      "operatingSystem": "All",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      }
-    }
-    </script>
+export function getAmazonMovieUrl(title: string): string {
+  const query = `${title} movie prime video`.trim();
+  return `https://www.amazon.com/s?k=${encodeURIComponent(query)}&tag=${AFFILIATE_TAG}&i=instant-video`;
+}
 
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Mea+Culpa&family=Pinyon+Script&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap" rel="stylesheet">
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+export function getAmazonGameUrl(title: string): string {
+  const query = `${title} video game`.trim();
+  return `https://www.amazon.com/s?k=${encodeURIComponent(query)}&tag=${AFFILIATE_TAG}&i=videogames`;
+}
 
+export function getAmazonArtUrl(title: string, artist?: string): string {
+  const query = `${title} ${artist || ''} art print book`.trim();
+  return `https://www.amazon.com/s?k=${encodeURIComponent(query)}&tag=${AFFILIATE_TAG}&i=arts-crafts`;
+}
