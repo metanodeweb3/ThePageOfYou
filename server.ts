@@ -231,11 +231,12 @@ Return strict JSON adhering to the specified schema.`;
       required: ['name', 'meaning', 'books', 'songs', 'movies', 'games', 'art', 'acrostic'],
     };
 
-    const primaryModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
     const modelsToTry = Array.from(new Set([
       primaryModel,
-      'gemini-2.5-flash',
-      'gemini-3-flash',
+      'gemini-3.6-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-flash-latest',
     ]));
 
     let parsedData = null;
