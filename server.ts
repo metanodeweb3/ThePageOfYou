@@ -231,7 +231,15 @@ Return strict JSON adhering to the specified schema.`;
       required: ['name', 'meaning', 'books', 'songs', 'movies', 'games', 'art', 'acrostic'],
     };
 
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    const primaryModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const modelsToTry = Array.from(new Set([
+      primaryModel,
+      'gemini-2.5-flash',
+      'gemini-2.5-pro',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+    ]));
+
     let parsedData = null;
     let lastError = null;
 
@@ -260,10 +268,16 @@ Return strict JSON adhering to the specified schema.`;
       } catch (err: any) {
         lastError = err;
         const msg = err?.message || String(err);
-        const shortMsg = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')
+        const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
+        const shortMsg = isRateLimit
           ? 'Rate limit exceeded (429)'
           : msg.slice(0, 120);
         console.warn(`Model ${modelName} issue: ${shortMsg}`);
+
+        // If rate limited, pause briefly before trying the next model
+        if (isRateLimit) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+        }
       }
       if (parsedData) break;
     }
