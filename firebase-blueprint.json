@@ -10,6 +10,19 @@
         "lastSearchedAt": { "type": "string", "description": "ISO timestamp of last search" }
       },
       "required": ["name", "searchCount"]
+    },
+    "name_cache": {
+      "title": "Name Cache",
+      "description": "Cached Gemini results for searched names for high-performance retrieval",
+      "properties": {
+        "name": { "type": "string", "description": "Name or topic search query" },
+        "data": { "type": "object", "description": "Full PersonNameData JSON structure" },
+        "searchCount": { "type": "number", "description": "Number of times searched" },
+        "lastSearchedAt": { "type": "string", "description": "ISO timestamp of last search" },
+        "createdAt": { "type": "string", "description": "ISO timestamp when cached" },
+        "schemaVersion": { "type": "number", "description": "Version identifier for prompt/schema" }
+      },
+      "required": ["name", "data"]
     }
   }
 }

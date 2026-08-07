@@ -1,7 +1,10 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
+import { initializeApp, getApps } from 'firebase/app';
+import { getFirestore, doc, getDoc, setDoc, increment } from 'firebase/firestore';
 import dotenv from 'dotenv';
 import { generateDynamicNameData, POPULAR_NAMES_DATA } from './src/data/fallbackData';
 
@@ -11,6 +14,24 @@ const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json());
+
+// Initialize Firestore Server Instance lazily
+let firestoreDb: any = null;
+function getFirestoreDb() {
+  if (firestoreDb) return firestoreDb;
+  try {
+    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const fbApp = getApps().length > 0 ? getApps()[0] : initializeApp(config);
+      firestoreDb = getFirestore(fbApp, config.firestoreDatabaseId || '(default)');
+      return firestoreDb;
+    }
+  } catch (err) {
+    console.warn('Server Firestore initialization notice:', err);
+  }
+  return null;
+}
 
 // Initialize Gemini AI Client lazily or safely
 function getGeminiClient() {
@@ -97,6 +118,42 @@ app.post('/api/lookup', async (req, res) => {
     });
   }
 
+  // 4. Check Firestore database cache (name_cache collection) for saved dynamic results
+  const db = getFirestoreDb();
+  if (db) {
+    try {
+      const cacheDocRef = doc(db, 'name_cache', lowerName);
+      const docSnap = await getDoc(cacheDocRef);
+      if (docSnap.exists()) {
+        const firestoreData = docSnap.data();
+        if (firestoreData && firestoreData.data) {
+          // Increment search count asynchronously
+          setDoc(cacheDocRef, {
+            searchCount: increment(1),
+            lastSearchedAt: new Date().toISOString(),
+          }, { merge: true }).catch(() => {});
+
+          const popDocRef = doc(db, 'popular_names', lowerName);
+          setDoc(popDocRef, {
+            name: cleanName,
+            searchCount: increment(1),
+            lastSearchedAt: new Date().toISOString(),
+          }, { merge: true }).catch(() => {});
+
+          // Save in server in-memory cache for ultra-fast subsequent hits
+          lookupCache.set(lowerName, { data: firestoreData.data, timestamp: Date.now() });
+
+          return res.json({
+            ...firestoreData.data,
+            source: 'firestore_cache',
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Firestore cache read error:', err);
+    }
+  }
+
   const ai = getGeminiClient();
 
   if (!ai) {
@@ -109,33 +166,39 @@ app.post('/api/lookup', async (req, res) => {
 
   try {
     const prompt = `You are an expert, meticulous cultural archivist for "The Page of You".
-Find real, famous, historically accurate, and verifiable cultural references for the search query or subject "${cleanName}".
+Find real, famous, historically accurate, and verifiable cultural references for the search query or name "${cleanName}".
 
-The search query "${cleanName}" can be a person's name, character, subject, or concept.
+The search query "${cleanName}" can be a person's name, character, historical figure, subject, or concept.
+
+Provide an extensive, comprehensive list of up to 10 verified items per category wherever authentic matches exist in world literature, music, cinema, gaming, fine art, and architecture.
 
 CRITICAL CATEGORY PRIORITIZATION RULES FOR "${cleanName}":
 
-1. BOOKS / LITERATURE:
-   - MUST prioritize famous, authentic QUOTES from books/literature that explicitly mention "${cleanName}" inside the text of the quote itself.
+1. BOOKS / LITERATURE (Provide up to 10 items):
+   - MUST prioritize famous, authentic QUOTES from books/literature that explicitly mention "${cleanName}" inside the text of the quote itself or in the main character's name/title.
    - STRICT RULE: DO NOT include books merely because the author's first or last name is "${cleanName}" (e.g. do not return books by Michael Crichton or Stephen King unless the book text or quote explicitly mentions "${cleanName}").
 
-2. SONGS & MUSIC:
-   - MUST prioritize specific, famous song LYRICS that explicitly contain "${cleanName}" in the line of lyrics (e.g., songs like "Hey Jude", "Billie Jean", "Roxanne", "Sweet Caroline", "Come On Eileen", etc.).
+2. SONGS & MUSIC (Provide up to 10 items):
+   - MUST prioritize specific, famous song LYRICS or song TITLES that explicitly contain "${cleanName}" in the lyrics or title (e.g., "Hey Jude", "Billie Jean", "Roxanne", "Sweet Caroline", "Come On Eileen", "Michael", etc.).
 
-3. MOVIES & CINEMA:
-   - MUST prioritize famous, iconic movie QUOTES or spoken dialogue lines that explicitly mention or address "${cleanName}".
+3. MOVIES & CINEMA (Provide up to 10 items):
+   - MUST prioritize famous, iconic movie QUOTES or spoken dialogue lines or lead character names that explicitly mention or address "${cleanName}".
 
-4. VIDEO GAMES:
-   - MUST prioritize GAME TITLES or iconic character names that explicitly contain "${cleanName}" in the title of the game (e.g., "The Legend of Zelda", "Max Payne", "Alice: Madness Returns", "Super Mario Bros", "Tomb Raider").
+4. VIDEO GAMES (Provide up to 10 items):
+   - MUST prioritize GAME TITLES or iconic character names that explicitly contain "${cleanName}" in the title, main character, or lore (e.g., "The Legend of Zelda", "Max Payne", "Alice: Madness Returns", "Super Mario Bros", "Tomb Raider").
 
-5. FINE ART & ARCHITECTURE:
-   - MUST prioritize TITLES and NAMES of famous pieces of art, paintings, sculptures, or architectural landmarks that explicitly contain "${cleanName}" in the title or main subject (e.g., "Mona Lisa", "The Birth of Venus", "David", "Judith Slaying Holofernes", "Saint Peter's Basilica").
+5. FINE ART & ARCHITECTURE (Provide up to 10 items):
+   - MUST prioritize TITLES and NAMES of famous pieces of art, paintings, sculptures, or architectural landmarks/creations that explicitly contain "${cleanName}" in the title or main subject/creator (e.g., "Mona Lisa", "The Birth of Venus", "David", "Judith Slaying Holofernes", "Saint Peter's Basilica", or architectural works by Nicholas Hawksmoor / Christopher Wren / Frank Lloyd Wright if applicable).
 
-CRITICAL QUANTITY & ACCURACY DIRECTIVES:
+6. ETYMOLOGY, MEANING, ADJECTIVES & ACROSTIC:
+   - Origin: Provide a thorough, fascinating, and accurate historical and linguistic origin narrative (2-3 detailed sentences).
+   - Meaning: Expressive, poetic summary of the name's meaning.
+   - Adjectives: Exactly 5 inspiring, vivid personality adjectives that embody the spirit and essence of the name.
+   - Acrostic: An acrostic poem where each letter of "${cleanName}" starts an inspiring line.
+
+CRITICAL ACCURACY DIRECTIVES:
 - TRUTH OVER QUANTITY: Absolutely DO NOT invent, hallucinate, or fabricate entries under any circumstances. Every single item MUST be a real, verifiable, published work, song, film, architectural creation, or game.
-- EMPTY CATEGORIES ARE ALLOWED & EXPECTED: If a category (e.g. video games, songs, or movies) has FEW or ZERO genuine real-world references for "${cleanName}", return ONLY the genuine ones or an EMPTY ARRAY [].
-- DO NOT invent fictional titles, fictional quotes, fictional character names, or fictional authors/artists to pad or fill out lists. It is FAR better to return 0 items for a category than a fake one.
-- For architectural creators, historical figures, or landmarks like "${cleanName}" (e.g., Nicholas Hawksmoor, Christopher Wren, etc.), place real architectural works (e.g. Christ Church Spitalfields, St Mary Woolnoth, Castle Howard Mausoleum) under Fine Art & Architecture, and real literature, books, or films featuring them under Books / Movies.
+- DO NOT invent fictional titles, fictional quotes, fictional character names, or fictional authors/artists to pad or fill out lists.
 
 Return strict JSON adhering to the specified schema.`;
 
@@ -302,6 +365,30 @@ Return strict JSON adhering to the specified schema.`;
 
       // Save to memory cache to eliminate future duplicate API calls
       lookupCache.set(lowerName, { data: parsedData, timestamp: Date.now() });
+
+      // Save to Firestore name_cache and popular_names asynchronously for global database persistence
+      if (db) {
+        try {
+          const cacheDocRef = doc(db, 'name_cache', lowerName);
+          setDoc(cacheDocRef, {
+            name: cleanName,
+            data: parsedData,
+            searchCount: 1,
+            lastSearchedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            schemaVersion: 2,
+          }, { merge: true }).catch(e => console.warn('Firestore save name_cache error:', e));
+
+          const popDocRef = doc(db, 'popular_names', lowerName);
+          setDoc(popDocRef, {
+            name: cleanName,
+            searchCount: increment(1),
+            lastSearchedAt: new Date().toISOString(),
+          }, { merge: true }).catch(e => console.warn('Firestore save popular_names error:', e));
+        } catch (e) {
+          console.warn('Firestore write error:', e);
+        }
+      }
 
       return res.json({
         ...parsedData,
