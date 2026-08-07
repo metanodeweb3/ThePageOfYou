@@ -1,9 +1,21 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, getDocs, setDoc, getDoc, query, orderBy, limit, increment } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
+import { getFirestore, collection, doc, getDocs, setDoc, getDoc, query, orderBy, limit, increment, type Firestore } from 'firebase/firestore';
 
-export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
+// Safely resolve configuration if firebase-applet-config.json exists
+const configModules = import.meta.glob('../../firebase-applet-config.json', { eager: true });
+const firebaseConfig = (configModules['../../firebase-applet-config.json'] as any)?.default || null;
+
+let app: FirebaseApp | null = null;
+let db: Firestore | null = null;
+
+if (firebaseConfig) {
+  try {
+    app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+    db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
+  } catch (err) {
+    console.warn('Failed to initialize Firebase app or firestore:', err);
+  }
+}
 
 const DEFAULT_POPULAR_NAMES = [
   'Michael', 'Sarah', 'Elizabeth', 'Arthur', 'Alice', 'James',
@@ -11,6 +23,9 @@ const DEFAULT_POPULAR_NAMES = [
 ];
 
 export async function fetchPopularNames(): Promise<string[]> {
+  if (!db) {
+    return DEFAULT_POPULAR_NAMES;
+  }
   try {
     const popularRef = collection(db, 'popular_names');
     const q = query(popularRef, orderBy('searchCount', 'desc'), limit(15));
@@ -40,7 +55,6 @@ export async function fetchPopularNames(): Promise<string[]> {
       }
     });
 
-    // Fallback if snapshot returned items without names
     return names.length > 0 ? names : DEFAULT_POPULAR_NAMES;
   } catch (error) {
     console.warn('Firebase fetchPopularNames error, falling back to static list:', error);
@@ -49,7 +63,7 @@ export async function fetchPopularNames(): Promise<string[]> {
 }
 
 export async function trackNameSearch(name: string): Promise<void> {
-  if (!name || !name.trim()) return;
+  if (!db || !name || !name.trim()) return;
   const cleanName = name.trim();
   const docId = cleanName.toLowerCase();
 
@@ -74,3 +88,5 @@ export async function trackNameSearch(name: string): Promise<void> {
     console.warn('Firebase trackNameSearch error:', error);
   }
 }
+
+export { app, db };

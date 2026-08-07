@@ -20,11 +20,6 @@ function getGeminiClient() {
   }
   return new GoogleGenAI({
     apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
   });
 }
 
@@ -180,14 +175,14 @@ Return strict JSON adhering to the specified schema.`;
       required: ['name', 'meaning', 'books', 'songs', 'movies', 'games', 'art', 'acrostic'],
     };
 
-    const modelsToTry = ['gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
     let parsedData = null;
     let lastError = null;
 
     for (const modelName of modelsToTry) {
       try {
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 20000)
+          setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 25000)
         );
 
         const apiPromise = ai.models.generateContent({
