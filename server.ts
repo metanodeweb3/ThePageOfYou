@@ -235,9 +235,7 @@ Return strict JSON adhering to the specified schema.`;
     const modelsToTry = Array.from(new Set([
       primaryModel,
       'gemini-2.5-flash',
-      'gemini-2.5-pro',
-      'gemini-2.0-flash',
-      'gemini-1.5-flash',
+      'gemini-3-flash',
     ]));
 
     let parsedData = null;
