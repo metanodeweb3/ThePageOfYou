@@ -20,6 +20,11 @@ function getGeminiClient() {
   }
   return new GoogleGenAI({
     apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
   });
 }
 
@@ -175,7 +180,7 @@ Return strict JSON adhering to the specified schema.`;
       required: ['name', 'meaning', 'books', 'songs', 'movies', 'games', 'art', 'acrostic'],
     };
 
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const modelsToTry = ['gemini-3.6-flash', 'gemini-flash-latest'];
     let parsedData = null;
     let lastError = null;
 
