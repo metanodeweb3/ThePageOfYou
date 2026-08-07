@@ -28,6 +28,21 @@ function getGeminiClient() {
   });
 }
 
+// In-Memory Cache for Gemini Lookup Results (stores up to 24 hours)
+const lookupCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+// In-Memory Rate Limiter per Client IP (max 10 requests per minute)
+const ipRequestCounts = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 10;
+
+// Direct route for robots.txt
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send('User-agent: *\nDisallow: /\n');
+});
+
 // API endpoint to lookup cultural references for a name
 app.post('/api/lookup', async (req, res) => {
   const { name } = req.body;
@@ -35,10 +50,46 @@ app.post('/api/lookup', async (req, res) => {
     return res.status(400).json({ error: 'Name parameter is required' });
   }
 
-  const cleanName = name.trim();
+  // Cap input length at 80 chars to prevent massive token waste or abuse
+  const cleanName = name.trim().slice(0, 80);
   const lowerName = cleanName.toLowerCase();
 
-  // 1. Check curated static dataset first
+  // 1. IP Rate Limiting Check
+  const clientIp = ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  const now = Date.now();
+  const ipData = ipRequestCounts.get(clientIp);
+
+  if (ipData) {
+    if (now > ipData.resetTime) {
+      ipRequestCounts.set(clientIp, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    } else {
+      ipData.count += 1;
+      if (ipData.count > MAX_REQUESTS_PER_WINDOW) {
+        if (lookupCache.has(lowerName)) {
+          return res.json({ ...lookupCache.get(lowerName)!.data, source: 'cache' });
+        }
+        const fallbackData = POPULAR_NAMES_DATA[lowerName] || generateDynamicNameData(cleanName);
+        return res.status(429).json({
+          ...fallbackData,
+          source: 'fallback',
+          error: 'Rate limit exceeded. Please wait a minute before making more requests.',
+        });
+      }
+    }
+  } else {
+    ipRequestCounts.set(clientIp, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+  }
+
+  // 2. Check in-memory lookup cache
+  const cachedEntry = lookupCache.get(lowerName);
+  if (cachedEntry && (now - cachedEntry.timestamp < CACHE_TTL_MS)) {
+    return res.json({
+      ...cachedEntry.data,
+      source: 'cache',
+    });
+  }
+
+  // 3. Check curated static dataset next
   if (POPULAR_NAMES_DATA[lowerName]) {
     return res.json({
       ...POPULAR_NAMES_DATA[lowerName],
@@ -235,6 +286,9 @@ Return strict JSON adhering to the specified schema.`;
       parsedData.movies = sanitizeList(parsedData.movies);
       parsedData.games = sanitizeList(parsedData.games);
       parsedData.art = sanitizeList(parsedData.art);
+
+      // Save to memory cache to eliminate future duplicate API calls
+      lookupCache.set(lowerName, { data: parsedData, timestamp: Date.now() });
 
       return res.json({
         ...parsedData,
