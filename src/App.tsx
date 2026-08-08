@@ -312,12 +312,17 @@ export function App() {
             </button>
           </div>
 
-          <div className="pt-4 border-t border-stone-800/80 w-full flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-stone-400">
-            <p>© {new Date().getFullYear()} <span className="text-amber-200/90 font-medium">thepageofyou.com</span>. Personalised name history & cultural discovery.</p>
-            <p className="flex items-center gap-1">
-              <span>Crafted with</span>
-              <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline mx-0.5" />
-              <span>for curious minds</span>
+          <div className="pt-4 border-t border-stone-800/80 w-full flex flex-col items-center justify-center gap-3 text-xs text-stone-400">
+            <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-3">
+              <p>© {new Date().getFullYear()} <span className="text-amber-200/90 font-medium">thepageofyou.com</span>. Personalised name history & cultural discovery.</p>
+              <p className="flex items-center gap-1">
+                <span>Crafted with</span>
+                <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline mx-0.5" />
+                <span>for curious minds</span>
+              </p>
+            </div>
+            <p id="affiliate-disclosure" className="text-[11px] text-stone-500 text-center max-w-2xl leading-relaxed pt-1">
+              <strong className="text-stone-400 font-medium">Affiliate Disclosure:</strong> As an Amazon Associate, The Page of You earns from qualifying purchases made through links on this site at no extra cost to you.
             </p>
           </div>
         </div>
