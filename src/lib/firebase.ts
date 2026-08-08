@@ -1,5 +1,7 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getFirestore, collection, doc, getDocs, setDoc, getDoc, query, orderBy, limit, increment, type Firestore } from 'firebase/firestore';
+import { PersonNameData } from '../types';
+import { normalizeText } from '../utils/searchEngine';
 
 // Safely resolve configuration if firebase-applet-config.json exists
 const configModules = import.meta.glob('../../firebase-applet-config.json', { eager: true });
@@ -35,7 +37,7 @@ export async function fetchPopularNames(): Promise<string[]> {
       // Seed initial popular names
       const initialList: string[] = [];
       for (const name of DEFAULT_POPULAR_NAMES) {
-        const docRef = doc(db, 'popular_names', name.toLowerCase());
+        const docRef = doc(db, 'popular_names', normalizeText(name));
         await setDoc(docRef, {
           name: name,
           searchCount: 1,
@@ -65,7 +67,7 @@ export async function fetchPopularNames(): Promise<string[]> {
 export async function trackNameSearch(name: string): Promise<void> {
   if (!db || !name || !name.trim()) return;
   const cleanName = name.trim();
-  const docId = cleanName.toLowerCase();
+  const docId = normalizeText(cleanName);
 
   try {
     const docRef = doc(db, 'popular_names', docId);
@@ -89,4 +91,46 @@ export async function trackNameSearch(name: string): Promise<void> {
   }
 }
 
+export async function getCachedNameData(name: string): Promise<PersonNameData | null> {
+  if (!db || !name || !name.trim()) return null;
+  const docId = normalizeText(name);
+  try {
+    const docRef = doc(db, 'name_cache', docId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const firestoreData = docSnap.data();
+      if (!firestoreData) return null;
+      if (firestoreData.data) {
+        return firestoreData.data as PersonNameData;
+      }
+      if (firestoreData.nameData) {
+        return firestoreData.nameData as PersonNameData;
+      }
+      if (firestoreData.origin || firestoreData.meaning || firestoreData.books) {
+        return firestoreData as PersonNameData;
+      }
+    }
+  } catch (error) {
+    console.warn('Firebase getCachedNameData error:', error);
+  }
+  return null;
+}
+
+export async function cacheNameData(nameData: PersonNameData): Promise<void> {
+  if (!db || !nameData || !nameData.name) return;
+  const docId = normalizeText(nameData.name);
+  try {
+    const docRef = doc(db, 'name_cache', docId);
+    await setDoc(docRef, {
+      name: nameData.name,
+      data: nameData,
+      lastSearchedAt: new Date().toISOString(),
+    }, { merge: true });
+  } catch (error) {
+    console.warn('Firebase cacheNameData error:', error);
+  }
+}
+
 export { app, db };
+
+

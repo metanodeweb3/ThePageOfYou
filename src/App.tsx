@@ -8,8 +8,8 @@ import { ShareBanner } from './components/ShareBanner';
 import { ShareCardModal } from './components/ShareCardModal';
 import { CoffeeModal } from './components/CoffeeModal';
 import { PersonNameData } from './types';
-import { POPULAR_NAMES_DATA, generateDynamicNameData } from './data/fallbackData';
-import { fetchPopularNames, trackNameSearch } from './lib/firebase';
+import { POPULAR_NAMES_DATA, findFallbackName } from './data/fallbackData';
+import { fetchPopularNames, trackNameSearch, getCachedNameData, cacheNameData } from './lib/firebase';
 import { Share2, Heart } from 'lucide-react';
 
 export function App() {
@@ -121,7 +121,20 @@ export function App() {
     url.searchParams.set('name', cleanName);
     window.history.pushState({}, '', url.toString());
 
-    // 1. Query server Gemini API for live deep cultural search
+    // 1. Check Firestore Cache first for instant response
+    try {
+      const cached = await getCachedNameData(cleanName);
+      if (cached) {
+        setNameData(cached);
+        setIsLoading(false);
+        abortControllerRef.current = null;
+        return;
+      }
+    } catch (err) {
+      console.warn('Firestore cache lookup error:', err);
+    }
+
+    // 2. Query server Gemini API for live deep cultural search
     try {
       const res = await fetch('/api/lookup', {
         method: 'POST',
@@ -130,7 +143,7 @@ export function App() {
         signal: controller.signal,
       });
 
-      if (res.ok) {
+      if (res.ok || res.status === 429) {
         const json = await res.json();
         const hasResults =
           (json.books && json.books.length > 0) ||
@@ -163,7 +176,7 @@ export function App() {
             id: `api-a-${i}`,
           }));
 
-          setNameData({
+          const freshData: PersonNameData = {
             name: cleanName,
             meaning: json.meaning || `Noble & Cherished Name (${cleanName})`,
             origin: json.origin || 'Cultural Heritage',
@@ -175,9 +188,14 @@ export function App() {
             games: gamesWithIds,
             art: artWithIds,
             source: 'gemini',
-          });
+          };
+
+          setNameData(freshData);
           setIsLoading(false);
           abortControllerRef.current = null;
+
+          // Asynchronously store in Firestore cache
+          cacheNameData(freshData).catch((e) => console.warn('Failed to cache name:', e));
           return;
         }
       }
@@ -186,16 +204,12 @@ export function App() {
         console.log('Search aborted by user for:', cleanName);
         return;
       }
-      console.warn('Falling back to local curated data:', e);
+      console.warn('Falling back to local curated search engine:', e);
     }
 
-    // 2. Fallback to curated dataset or dynamic generator if API call fails
-    const lower = cleanName.toLowerCase();
-    if (POPULAR_NAMES_DATA[lower]) {
-      setNameData(POPULAR_NAMES_DATA[lower]);
-    } else {
-      setNameData(generateDynamicNameData(cleanName));
-    }
+    // 3. Fallback to enhanced search engine (fuzzy Levenshtein, Soundex, diacritic stripping, aliases)
+    const fallbackData = findFallbackName(cleanName);
+    setNameData(fallbackData);
     setIsLoading(false);
     abortControllerRef.current = null;
   };

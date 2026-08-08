@@ -6,7 +6,8 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, increment } from 'firebase/firestore';
 import dotenv from 'dotenv';
-import { generateDynamicNameData, POPULAR_NAMES_DATA } from './src/data/fallbackData';
+import { findFallbackName, POPULAR_NAMES_DATA } from './src/data/fallbackData';
+import { normalizeText } from './src/utils/searchEngine';
 
 dotenv.config();
 
@@ -49,14 +50,39 @@ function getGeminiClient() {
   });
 }
 
-// In-Memory Cache for Gemini Lookup Results (stores up to 24 hours)
+// In-Memory Cache for Gemini Lookup Results (stores up to 24 hours, max 2000 items)
 const lookupCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 2000;
+
+function setInLookupCache(key: string, data: any) {
+  if (!key) return;
+  if (lookupCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = lookupCache.keys().next().value;
+    if (oldestKey) lookupCache.delete(oldestKey);
+  }
+  lookupCache.set(key, { data, timestamp: Date.now() });
+}
 
 // In-Memory Rate Limiter per Client IP (max 10 requests per minute)
 const ipRequestCounts = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 10;
+
+// Periodic cleanup of stale rate limiter IP records and expired cache entries every 5 minutes to prevent memory leaks
+setInterval(() => {
+  const currentTime = Date.now();
+  for (const [ip, data] of ipRequestCounts.entries()) {
+    if (currentTime > data.resetTime) {
+      ipRequestCounts.delete(ip);
+    }
+  }
+  for (const [key, entry] of lookupCache.entries()) {
+    if (currentTime - entry.timestamp > CACHE_TTL_MS) {
+      lookupCache.delete(key);
+    }
+  }
+}, 5 * 60 * 1000).unref();
 
 // Direct route for robots.txt
 app.get('/robots.txt', (req, res) => {
@@ -74,6 +100,7 @@ app.post('/api/lookup', async (req, res) => {
   // Cap input length at 80 chars to prevent massive token waste or abuse
   const cleanName = name.trim().slice(0, 80);
   const lowerName = cleanName.toLowerCase();
+  const normalizedName = normalizeText(cleanName);
 
   // 1. IP Rate Limiting Check
   const clientIp = ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
@@ -86,10 +113,11 @@ app.post('/api/lookup', async (req, res) => {
     } else {
       ipData.count += 1;
       if (ipData.count > MAX_REQUESTS_PER_WINDOW) {
-        if (lookupCache.has(lowerName)) {
-          return res.json({ ...lookupCache.get(lowerName)!.data, source: 'cache' });
+        if (lookupCache.has(lowerName) || lookupCache.has(normalizedName)) {
+          const cached = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
+          return res.json({ ...cached!.data, source: 'cache' });
         }
-        const fallbackData = POPULAR_NAMES_DATA[lowerName] || generateDynamicNameData(cleanName);
+        const fallbackData = findFallbackName(cleanName);
         return res.status(429).json({
           ...fallbackData,
           source: 'fallback',
@@ -102,7 +130,7 @@ app.post('/api/lookup', async (req, res) => {
   }
 
   // 2. Check in-memory lookup cache
-  const cachedEntry = lookupCache.get(lowerName);
+  const cachedEntry = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
   if (cachedEntry && (now - cachedEntry.timestamp < CACHE_TTL_MS)) {
     return res.json({
       ...cachedEntry.data,
@@ -141,7 +169,8 @@ app.post('/api/lookup', async (req, res) => {
           }, { merge: true }).catch(() => {});
 
           // Save in server in-memory cache for ultra-fast subsequent hits
-          lookupCache.set(lowerName, { data: firestoreData.data, timestamp: Date.now() });
+          setInLookupCache(lowerName, firestoreData.data);
+          setInLookupCache(normalizedName, firestoreData.data);
 
           return res.json({
             ...firestoreData.data,
@@ -157,10 +186,11 @@ app.post('/api/lookup', async (req, res) => {
   const ai = getGeminiClient();
 
   if (!ai) {
+    const fallbackData = findFallbackName(cleanName);
     return res.json({
-      name: cleanName,
+      ...fallbackData,
       source: 'fallback',
-      message: 'Gemini API key not configured, returning curated fallback dataset if available.',
+      message: 'Gemini API key not configured, returning curated fallback dataset.',
     });
   }
 
@@ -299,7 +329,7 @@ Return strict JSON adhering to the specified schema.`;
       primaryModel,
       'gemini-3.6-flash',
       'gemini-3.1-flash-lite',
-      'gemini-flash-latest',
+      'gemini-2.5-flash',
     ]));
 
     let parsedData = null;
@@ -308,7 +338,7 @@ Return strict JSON adhering to the specified schema.`;
     for (const modelName of modelsToTry) {
       try {
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 25000)
+          setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 8000)
         );
 
         const apiPromise = ai.models.generateContent({
@@ -324,7 +354,11 @@ Return strict JSON adhering to the specified schema.`;
         const response: any = await Promise.race([apiPromise, timeoutPromise]);
 
         if (response && response.text) {
-          parsedData = JSON.parse(response.text);
+          let rawText = response.text.trim();
+          if (rawText.startsWith('```')) {
+            rawText = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+          }
+          parsedData = JSON.parse(rawText);
           break;
         }
       } catch (err: any) {
@@ -338,7 +372,7 @@ Return strict JSON adhering to the specified schema.`;
 
         // If rate limited, pause briefly before trying the next model
         if (isRateLimit) {
-          await new Promise(resolve => setTimeout(resolve, 1200));
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
       if (parsedData) break;
@@ -364,12 +398,13 @@ Return strict JSON adhering to the specified schema.`;
       parsedData.art = sanitizeList(parsedData.art);
 
       // Save to memory cache to eliminate future duplicate API calls
-      lookupCache.set(lowerName, { data: parsedData, timestamp: Date.now() });
+      setInLookupCache(lowerName, parsedData);
+      setInLookupCache(normalizedName, parsedData);
 
       // Save to Firestore name_cache and popular_names asynchronously for global database persistence
       if (db) {
         try {
-          const cacheDocRef = doc(db, 'name_cache', lowerName);
+          const cacheDocRef = doc(db, 'name_cache', normalizedName);
           setDoc(cacheDocRef, {
             name: cleanName,
             data: parsedData,
@@ -379,7 +414,7 @@ Return strict JSON adhering to the specified schema.`;
             schemaVersion: 2,
           }, { merge: true }).catch(e => console.warn('Firestore save name_cache error:', e));
 
-          const popDocRef = doc(db, 'popular_names', lowerName);
+          const popDocRef = doc(db, 'popular_names', normalizedName);
           setDoc(popDocRef, {
             name: cleanName,
             searchCount: increment(1),
@@ -396,8 +431,7 @@ Return strict JSON adhering to the specified schema.`;
       });
     } else {
       console.warn('All Gemini models failed or rate-limited. Returning fallback data.');
-      const lower = cleanName.toLowerCase();
-      const fallbackData = POPULAR_NAMES_DATA[lower] || generateDynamicNameData(cleanName);
+      const fallbackData = findFallbackName(cleanName);
       return res.json({
         ...fallbackData,
         source: 'fallback',
@@ -407,8 +441,7 @@ Return strict JSON adhering to the specified schema.`;
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     console.error('Error fetching name data from Gemini:', errorMessage);
-    const lower = cleanName.toLowerCase();
-    const fallbackData = POPULAR_NAMES_DATA[lower] || generateDynamicNameData(cleanName);
+    const fallbackData = findFallbackName(cleanName);
     return res.json({
       ...fallbackData,
       source: 'fallback',
@@ -416,6 +449,40 @@ Return strict JSON adhering to the specified schema.`;
     });
   }
 });
+
+async function prewarmCache() {
+  try {
+    // 1. Warm in-memory cache with curated popular names
+    for (const [key, nameData] of Object.entries(POPULAR_NAMES_DATA)) {
+      const lower = key.toLowerCase();
+      const norm = normalizeText(key);
+      setInLookupCache(lower, nameData);
+      if (norm !== lower) {
+        setInLookupCache(norm, nameData);
+      }
+    }
+
+    // 2. Warm Firestore name_cache for popular curated names
+    const db = getFirestoreDb();
+    if (db) {
+      for (const [key, nameData] of Object.entries(POPULAR_NAMES_DATA)) {
+        const normKey = normalizeText(key);
+        const cacheDocRef = doc(db, 'name_cache', normKey);
+        setDoc(cacheDocRef, {
+          name: nameData.name,
+          data: nameData,
+          searchCount: 1,
+          lastSearchedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          schemaVersion: 2,
+        }, { merge: true }).catch(() => {});
+      }
+    }
+    console.log(`[Cache Warmup] Successfully pre-warmed cache with ${Object.keys(POPULAR_NAMES_DATA).length} popular name entries.`);
+  } catch (err) {
+    console.warn('[Cache Warmup] Cache pre-warming warning:', err);
+  }
+}
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
@@ -431,6 +498,9 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Pre-warm cache for popular names on server boot
+  prewarmCache().catch((err) => console.warn('Prewarm failed:', err));
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://localhost:${PORT}`);
