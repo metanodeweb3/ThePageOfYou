@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 .font-mea-culpa {
-  font-family: 'Mea Culpa', cursive;
+  font-family: 'Mea Culpa', 'Pinyon Script', 'Great Vibes', cursive, serif;
 }
 
 .font-cursive {
-  font-family: 'Great Vibes', cursive;
+  font-family: 'Great Vibes', 'Mea Culpa', cursive, serif;
 }
 
 .font-pinyon {
-  font-family: 'Pinyon Script', cursive;
+  font-family: 'Pinyon Script', 'Mea Culpa', cursive, serif;
 }
 
 /* Custom smooth horizontal scrollbar */
