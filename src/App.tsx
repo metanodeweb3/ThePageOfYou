@@ -335,6 +335,35 @@ export function App() {
                 <span>for curious minds</span>
               </p>
             </div>
+            <p id="our-friends-links" className="text-xs text-stone-400 text-center flex flex-wrap items-center justify-center gap-2 pt-1">
+              <span className="text-stone-300 font-medium">Our Friends:</span>
+              <a
+                href="https://www.mikegalactic.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-stone-400 hover:text-amber-300 transition-colors underline underline-offset-2"
+              >
+                MikeGalactic
+              </a>
+              <span className="text-stone-600">•</span>
+              <a
+                href="https://evolvedpapercraft.co.uk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-stone-400 hover:text-amber-300 transition-colors underline underline-offset-2"
+              >
+                EvolvedPapercraft
+              </a>
+              <span className="text-stone-600">•</span>
+              <a
+                href="https://metanode.co.uk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-stone-400 hover:text-amber-300 transition-colors underline underline-offset-2"
+              >
+                Metanode
+              </a>
+            </p>
             <p id="affiliate-disclosure" className="text-[11px] text-stone-500 text-center max-w-2xl leading-relaxed pt-1">
               <strong className="text-stone-400 font-medium">Affiliate Disclosure:</strong> As an Amazon Associate, The Page of You earns from qualifying purchases made through links on this site at no extra cost to you.
             </p>
