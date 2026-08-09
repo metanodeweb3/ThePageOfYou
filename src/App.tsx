@@ -216,15 +216,15 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[#faf8f5] text-stone-900 font-sans flex flex-col justify-between selection:bg-amber-200 selection:text-stone-900">
-      <div>
-        {/* Navigation Header */}
-        <Header
-          onOpenCoffee={() => setIsCoffeeOpen(true)}
-          onOpenShare={() => setIsShareOpen(true)}
-          isBookmarked={isBookmarked}
-          onToggleBookmark={handleToggleBookmark}
-        />
+      <Header
+        onOpenCoffee={() => setIsCoffeeOpen(true)}
+        onOpenShare={() => setIsShareOpen(true)}
+        isBookmarked={isBookmarked}
+        onToggleBookmark={handleToggleBookmark}
+      />
 
+      {/* Main Content Area */}
+      <main id="main-content" className="flex-1">
         {/* Name Search Header Box */}
         <NameSearch
           currentName={currentName}
@@ -262,7 +262,7 @@ export function App() {
           acrostic={nameData.acrostic}
           data={nameData}
         />
-      </div>
+      </main>
 
       {/* Persistent Floating Share Action Button */}
       <button

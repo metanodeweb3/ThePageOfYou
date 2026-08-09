@@ -329,17 +329,17 @@ Return strict JSON adhering to the specified schema.`;
       primaryModel,
       'gemini-3.6-flash',
       'gemini-3.1-flash-lite',
-      'gemini-2.5-flash',
     ]));
 
     let parsedData = null;
     let lastError = null;
 
     for (const modelName of modelsToTry) {
+      let timeoutId: NodeJS.Timeout | null = null;
       try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 8000)
-        );
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 8000);
+        });
 
         const apiPromise = ai.models.generateContent({
           model: modelName,
@@ -347,11 +347,12 @@ Return strict JSON adhering to the specified schema.`;
           config: {
             responseMimeType: 'application/json',
             responseSchema,
-            maxOutputTokens: 4096,
+            maxOutputTokens: 3000,
           },
         });
 
         const response: any = await Promise.race([apiPromise, timeoutPromise]);
+        if (timeoutId) clearTimeout(timeoutId);
 
         if (response && response.text) {
           let rawText = response.text.trim();
@@ -362,6 +363,7 @@ Return strict JSON adhering to the specified schema.`;
           break;
         }
       } catch (err: any) {
+        if (timeoutId) clearTimeout(timeoutId);
         lastError = err;
         const msg = err?.message || String(err);
         const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
