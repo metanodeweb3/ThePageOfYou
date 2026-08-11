@@ -7,6 +7,8 @@ import { VibeMeter } from './components/VibeMeter';
 import { ShareBanner } from './components/ShareBanner';
 import { ShareCardModal } from './components/ShareCardModal';
 import { CoffeeModal } from './components/CoffeeModal';
+import { PrivacyPolicyModal } from './components/PrivacyPolicyModal';
+import { CookieBanner } from './components/CookieBanner';
 import { PersonNameData } from './types';
 import { POPULAR_NAMES_DATA, findFallbackName } from './data/fallbackData';
 import { fetchPopularNames, trackNameSearch, getCachedNameData, cacheNameData } from './lib/firebase';
@@ -18,6 +20,8 @@ export function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCoffeeOpen, setIsCoffeeOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+  const [forceShowCookieBanner, setForceShowCookieBanner] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [popularNames, setPopularNames] = useState<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -329,11 +333,13 @@ export function App() {
           <div className="pt-4 border-t border-stone-800/80 w-full flex flex-col items-center justify-center gap-3 text-xs text-stone-400">
             <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-3">
               <p>© {new Date().getFullYear()} <span className="text-amber-200/90 font-medium">thepageofyou.com</span>. Personalised name history & cultural discovery.</p>
-              <p className="flex items-center gap-1">
-                <span>Crafted with</span>
-                <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline mx-0.5" />
-                <span>for curious minds</span>
-              </p>
+              <button
+                id="btn-footer-privacy-policy"
+                onClick={() => setIsPrivacyOpen(true)}
+                className="text-stone-400 hover:text-amber-200 transition-colors underline decoration-stone-600 underline-offset-4 font-medium flex items-center gap-1.5"
+              >
+                <span>Privacy Policy & Cookies</span>
+              </button>
             </div>
             <p id="our-friends-links" className="text-xs text-stone-400 text-center flex flex-wrap items-center justify-center gap-2 pt-1">
               <span className="text-stone-300 font-medium">Our Friends:</span>
@@ -371,7 +377,7 @@ export function App() {
         </div>
       </footer>
 
-      {/* Modals */}
+      {/* Modals & Banners */}
       <CoffeeModal
         isOpen={isCoffeeOpen}
         onClose={() => setIsCoffeeOpen(false)}
@@ -381,6 +387,18 @@ export function App() {
         data={nameData}
         isOpen={isShareOpen}
         onClose={() => setIsShareOpen(false)}
+      />
+
+      <PrivacyPolicyModal
+        isOpen={isPrivacyOpen}
+        onClose={() => setIsPrivacyOpen(false)}
+        onManageCookies={() => setForceShowCookieBanner(true)}
+      />
+
+      <CookieBanner
+        onOpenPrivacyPolicy={() => setIsPrivacyOpen(true)}
+        forceShow={forceShowCookieBanner}
+        onDismissForceShow={() => setForceShowCookieBanner(false)}
       />
     </div>
   );
