@@ -88,6 +88,9 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 <strong>User-Generated Keepsakes:</strong> If you explicitly share or save a custom poem, acrostic, or graphics card, the card payload may be stored securely in our Firebase Firestore database to enable direct URL sharing.
               </li>
               <li>
+                <strong>Analytics & Performance Data:</strong> We use Google Analytics to gather aggregated, anonymous statistics about site visitors (such as traffic counts, page views, and general geographic region) to improve site performance and content.
+              </li>
+              <li>
                 <strong>Technical Logs:</strong> Standard web server logs (IP address, browser type, referring page) are automatically captured for operational security and fraud prevention.
               </li>
             </ul>
@@ -100,12 +103,15 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
               <h3>3. Cookies & Local Storage</h3>
             </div>
             <p>
-              We use essential local storage keys to deliver core site functionality (such as keeping track of your recent searches and storing your privacy preferences).
+              We use essential local storage keys to deliver core site functionality (such as keeping track of your recent searches and storing your privacy preferences) and performance cookies to understand site usage.
             </p>
             <div className="bg-stone-950/60 p-3.5 rounded-xl border border-stone-800/80 text-xs space-y-2">
               <div className="font-semibold text-amber-200">Types of Storage Used:</div>
               <p>
                 <strong>Essential Storage:</strong> Local storage items used to remember your cookie consent choice and saved favorite names.
+              </p>
+              <p>
+                <strong>Analytics Cookies (Google Analytics):</strong> Standard cookies (e.g. <code>_ga</code>) set by Google Analytics to help us analyze website traffic and visitor interactions in an anonymized manner.
               </p>
               <p>
                 <strong>Affiliate Cookies (Amazon):</strong> When you click on book, song, or film product recommendations on our site, you may be redirected to Amazon via affiliate links. Amazon uses cookies to track qualifying purchases and credit affiliate commissions as detailed in our Affiliate Disclosure.
@@ -121,6 +127,7 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
             </div>
             <p>We work with trusted third-party service providers strictly necessary to operate this site:</p>
             <ul className="list-disc pl-5 space-y-1 text-xs sm:text-sm">
+              <li><strong>Google Analytics:</strong> Used for aggregated site traffic, usage analytics, and performance monitoring.</li>
               <li><strong>Google Firebase:</strong> Used for database storage of shared cards and public submissions.</li>
               <li><strong>Amazon Associates Program:</strong> We participate in affiliate marketing programs to support site hosting costs.</li>
             </ul>

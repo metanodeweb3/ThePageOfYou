@@ -16,6 +16,9 @@ export const CookieBanner: React.FC<CookieBannerProps> = ({
 
   useEffect(() => {
     const consent = localStorage.getItem('privacy_consent');
+    if (consent === 'essential') {
+      (window as unknown as Record<string, boolean>)['ga-disable-G-J6Z2KSYKN5'] = true;
+    }
     if (!consent || forceShow) {
       setIsVisible(true);
     } else {
@@ -26,6 +29,11 @@ export const CookieBanner: React.FC<CookieBannerProps> = ({
   const handleConsent = (level: 'accepted' | 'essential') => {
     localStorage.setItem('privacy_consent', level);
     localStorage.setItem('privacy_consent_date', new Date().toISOString());
+    if (level === 'essential') {
+      (window as unknown as Record<string, boolean>)['ga-disable-G-J6Z2KSYKN5'] = true;
+    } else {
+      (window as unknown as Record<string, boolean>)['ga-disable-G-J6Z2KSYKN5'] = false;
+    }
     setIsVisible(false);
     if (onDismissForceShow) {
       onDismissForceShow();
@@ -52,7 +60,7 @@ export const CookieBanner: React.FC<CookieBannerProps> = ({
               </span>
             </div>
             <p className="text-xs text-stone-300 leading-relaxed max-w-2xl">
-              We use essential local storage to remember your searches and settings. We also feature Amazon affiliate links that use cookies to support our site.
+              We use essential local storage for preferences, Google Analytics to improve user experience, and Amazon affiliate cookies.
             </p>
           </div>
         </div>
