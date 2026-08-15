@@ -89,7 +89,61 @@ setInterval(() => {
 // Direct route for robots.txt
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
-  res.send('User-agent: *\nDisallow: /\n');
+  res.send('User-agent: *\nAllow: /\n\nSitemap: https://thepageofyou.com/sitemap.xml\n');
+});
+
+// Dynamic XML Sitemap for all curated and cached popular names
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    const baseUrl = 'https://thepageofyou.com';
+    const namesSet = new Set<string>();
+
+    // 1. Add all curated static names from memory
+    for (const key of Object.keys(POPULAR_NAMES_DATA)) {
+      if (key && key.trim()) {
+        namesSet.add(key.trim().toLowerCase());
+      }
+    }
+
+    // 2. Add cached names from in-memory lookupCache
+    for (const key of lookupCache.keys()) {
+      if (key && key.trim() && key.length > 1 && !key.includes(' ') && !key.includes('%')) {
+        namesSet.add(key.trim().toLowerCase());
+      }
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+    // Homepage
+    xml += `  <url>\n`;
+    xml += `    <loc>${baseUrl}</loc>\n`;
+    xml += `    <lastmod>${today}</lastmod>\n`;
+    xml += `    <changefreq>daily</changefreq>\n`;
+    xml += `    <priority>1.0</priority>\n`;
+    xml += `  </url>\n`;
+
+    // Name specific landing pages
+    for (const nameKey of Array.from(namesSet).sort()) {
+      const encodedSlug = encodeURIComponent(nameKey);
+      xml += `  <url>\n`;
+      xml += `    <loc>${baseUrl}/name/${encodedSlug}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>weekly</changefreq>\n`;
+      xml += `    <priority>0.8</priority>\n`;
+      xml += `  </url>\n`;
+    }
+
+    xml += `</urlset>`;
+
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+    res.send(xml);
+  } catch (err) {
+    console.error('Failed generating sitemap.xml:', err);
+    res.status(500).type('text/plain').send('Error generating sitemap');
+  }
 });
 
 // API endpoint to lookup cultural references for a name
@@ -488,13 +542,147 @@ async function prewarmCache() {
   }
 }
 
+// Helper to generate SEO-rich HTML for individual name pages
+function renderNameHtml(templateHtml: string, rawName: string): string {
+  const cleanName = rawName.trim();
+  const fallback = findFallbackName(cleanName);
+  const title = `${cleanName} — Name Meaning, Origin & Custom Acrostic Poem | The Page of You`;
+  const description = `Discover the origin, cultural history, meaning, and bespoke acrostic poem for "${cleanName}". Create personalized poems, gifts, and explore verified quotes across literature, music, and film.`;
+  const canonicalUrl = `https://thepageofyou.com/name/${encodeURIComponent(cleanName.toLowerCase())}`;
+  
+  // Format Acrostic for Schema / Meta
+  const acrosticLines = fallback.acrostic || [];
+  const acrosticFormatted = acrosticLines.map(a => `${a.letter}: ${a.line}`).join('. ');
+
+  const jsonLdSchema = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "name": "The Page of You",
+        "url": "https://thepageofyou.com",
+        "applicationCategory": "LifestyleApplication",
+        "description": "Personalised name origins, custom acrostic poetry generator, and cultural archives.",
+        "operatingSystem": "All"
+      },
+      {
+        "@type": "CreativeWork",
+        "name": `The Acrostic Poem & Cultural Meaning of ${cleanName}`,
+        "headline": `Name Origin, History & Poetry for ${cleanName}`,
+        "description": description,
+        "author": {
+          "@type": "Organization",
+          "name": "The Page of You",
+          "url": "https://thepageofyou.com"
+        },
+        "url": canonicalUrl,
+        "about": {
+          "@type": "Thing",
+          "name": cleanName,
+          "description": fallback.meaning || `Meaning and origin of the name ${cleanName}`
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": `What is the origin and meaning of the name ${cleanName}?`,
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": `The name ${cleanName} originates from ${fallback.origin || 'historical culture'} and signifies "${fallback.meaning || 'noble and cherished'}".`
+            }
+          },
+          {
+            "@type": "Question",
+            "name": `What is an acrostic poem for ${cleanName}?`,
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": acrosticFormatted || `A personalized acrostic poem highlighting the qualities of ${cleanName}.`
+            }
+          }
+        ]
+      }
+    ]
+  };
+
+  let html = templateHtml;
+
+  // Replace Title
+  html = html.replace(/<title>.*?<\/title>/i, `<title>${title}</title>`);
+  
+  // Replace Meta Name Title
+  html = html.replace(/<meta\s+name="title"\s+content=".*?"\s*\/?>/i, `<meta name="title" content="${title}" />`);
+  
+  // Replace Meta Description
+  html = html.replace(/<meta\s+name="description"\s+content=".*?"\s*\/?>/i, `<meta name="description" content="${description}" />`);
+  
+  // Replace Canonical Link
+  html = html.replace(/<link\s+rel="canonical"\s+href=".*?"\s*\/?>/i, `<link rel="canonical" href="${canonicalUrl}" />`);
+  
+  // Replace Open Graph Tags
+  html = html.replace(/<meta\s+property="og:title"\s+content=".*?"\s*\/?>/i, `<meta property="og:title" content="${title}" />`);
+  html = html.replace(/<meta\s+property="og:description"\s+content=".*?"\s*\/?>/i, `<meta property="og:description" content="${description}" />`);
+  html = html.replace(/<meta\s+property="og:url"\s+content=".*?"\s*\/?>/i, `<meta property="og:url" content="${canonicalUrl}" />`);
+  
+  // Replace Twitter Tags
+  html = html.replace(/<meta\s+name="twitter:title"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:title" content="${title}" />`);
+  html = html.replace(/<meta\s+name="twitter:description"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:description" content="${description}" />`);
+
+  // Inject Preloaded Server Data and JSON-LD schema
+  const serializedPreload = JSON.stringify(fallback).replace(/</g, '\\u003c');
+  const serializedSchema = JSON.stringify(jsonLdSchema).replace(/</g, '\\u003c');
+
+  const injection = `
+    <!-- Programmatic SEO Schema & Preloaded Initial State -->
+    <script type="application/ld+json">${serializedSchema}</script>
+    <script>
+      window.__PRELOADED_NAME_DATA__ = ${serializedPreload};
+      window.__PRELOADED_NAME__ = ${JSON.stringify(cleanName)};
+    </script>
+  `;
+
+  html = html.replace('</head>', `${injection}\n</head>`);
+  return html;
+}
+
 async function startServer() {
+  const indexHtmlPath = process.env.NODE_ENV !== 'production'
+    ? path.join(process.cwd(), 'index.html')
+    : path.join(process.cwd(), 'dist', 'index.html');
+
+  // Dedicated SEO landing page route for /name/:nameSlug
+  app.get('/name/:nameSlug', async (req, res, next) => {
+    try {
+      const rawSlug = req.params.nameSlug;
+      if (!rawSlug || rawSlug.trim() === '') {
+        return next();
+      }
+
+      const cleanName = decodeURIComponent(rawSlug).trim();
+      let rawHtml = fs.readFileSync(indexHtmlPath, 'utf-8');
+
+      if (process.env.NODE_ENV !== 'production' && viteDevServer) {
+        rawHtml = await viteDevServer.transformIndexHtml(req.originalUrl, rawHtml);
+      }
+
+      const renderedHtml = renderNameHtml(rawHtml, cleanName);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800');
+      return res.send(renderedHtml);
+    } catch (err) {
+      console.error('Error rendering name page:', err);
+      return next();
+    }
+  });
+
+  let viteDevServer: any = null;
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
+    viteDevServer = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    app.use(viteDevServer.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath, {

@@ -14,9 +14,20 @@ import { POPULAR_NAMES_DATA, findFallbackName } from './data/fallbackData';
 import { fetchPopularNames, trackNameSearch, getCachedNameData, cacheNameData } from './lib/firebase';
 import { Share2, Heart } from 'lucide-react';
 
+declare global {
+  interface Window {
+    __PRELOADED_NAME_DATA__?: PersonNameData;
+    __PRELOADED_NAME__?: string;
+  }
+}
+
 export function App() {
-  const [currentName, setCurrentName] = useState('Jude');
-  const [nameData, setNameData] = useState<PersonNameData>(POPULAR_NAMES_DATA.jude);
+  // Initialize from server preloaded state if available
+  const initialPreloadedData = typeof window !== 'undefined' ? window.__PRELOADED_NAME_DATA__ : undefined;
+  const initialPreloadedName = typeof window !== 'undefined' ? window.__PRELOADED_NAME__ : undefined;
+
+  const [currentName, setCurrentName] = useState<string>(initialPreloadedName || 'Jude');
+  const [nameData, setNameData] = useState<PersonNameData>(initialPreloadedData || POPULAR_NAMES_DATA.jude);
   const [isLoading, setIsLoading] = useState(false);
   const [isCoffeeOpen, setIsCoffeeOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
@@ -58,19 +69,34 @@ export function App() {
   // Dynamically update document title and meta description for SEO
   useEffect(() => {
     if (currentName) {
-      const formattedTitle = `${currentName} — Personalised Name Meaning, Acrostic Poem & Cultural History | The Page of You`;
+      const formattedTitle = `${currentName} — Name Meaning, Origin & Custom Acrostic Poem | The Page of You`;
       document.title = formattedTitle;
 
       // Update Meta Description dynamically
       const metaDescription = document.querySelector('meta[name="description"]');
       if (metaDescription) {
-        metaDescription.setAttribute('content', `Explore personalised name origin, custom acrostic poem, and verified book quotes, song lyrics, film quotes, video games, and fine art featuring "${currentName}".`);
+        metaDescription.setAttribute('content', `Discover the origin, cultural history, meaning, and bespoke acrostic poem for "${currentName}". Create personalized poems, gifts, and explore verified quotes across literature, music, and film.`);
       }
     }
   }, [currentName]);
 
-  // Check initial URL hash or param
+  // Check initial URL path (/name/oliver) or search param (?name=oliver)
   useEffect(() => {
+    // If we already hydrated with preloaded data from server, do not re-fetch
+    if (initialPreloadedData && initialPreloadedName) {
+      return;
+    }
+
+    const path = window.location.pathname;
+    const nameMatch = path.match(/^\/name\/([^/?#]+)/i);
+    if (nameMatch && nameMatch[1]) {
+      const decodedName = decodeURIComponent(nameMatch[1]).trim();
+      if (decodedName) {
+        handleSearchName(decodedName);
+        return;
+      }
+    }
+
     const params = new URLSearchParams(window.location.search);
     const nameParam = params.get('name');
     if (nameParam && nameParam.trim()) {
@@ -120,10 +146,16 @@ export function App() {
       });
     }).catch((err) => console.warn('Search tracking failed:', err));
 
-    // Update URL parameter without reload
-    const url = new URL(window.location.href);
-    url.searchParams.set('name', cleanName);
-    window.history.pushState({}, '', url.toString());
+    // Update URL path seamlessly to /name/:slug
+    try {
+      const safeSlug = encodeURIComponent(cleanName.toLowerCase());
+      const newPath = `/name/${safeSlug}`;
+      if (window.location.pathname !== newPath) {
+        window.history.pushState({ name: cleanName }, '', newPath);
+      }
+    } catch (e) {
+      console.warn('History pushState error:', e);
+    }
 
     // 1. Check Firestore Cache first for instant response
     try {

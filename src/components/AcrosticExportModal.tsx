@@ -42,9 +42,10 @@ export const AcrosticExportModal: React.FC<AcrosticExportModalProps> = ({
       poemStr += acrosticLines.map(a => `${a.letter}: ${a.line}`).join('\n') + '\n';
     }
 
+    const safeSlug = encodeURIComponent(data.name.trim().toLowerCase());
     const siteLink = window.location.hostname.includes('thepageofyou.com')
-      ? window.location.href
-      : `https://thepageofyou.com?name=${encodeURIComponent(data.name)}`;
+      ? `${window.location.origin}/name/${safeSlug}`
+      : `https://thepageofyou.com/name/${safeSlug}`;
     poemStr += `\nCreated on The Page of You: ${siteLink}`;
 
     navigator.clipboard.writeText(poemStr);

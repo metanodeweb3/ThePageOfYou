@@ -14,8 +14,11 @@ export const ShareBanner: React.FC<ShareBannerProps> = ({
   const [copied, setCopied] = useState(false);
 
   const handleCopyLink = () => {
-    const shareUrl = window.location.href;
-    const shareText = `Check out the personalized cultural page for "${data.name}" on The Page of You!\n${shareUrl}`;
+    const safeSlug = encodeURIComponent(data.name.trim().toLowerCase());
+    const shareUrl = window.location.hostname.includes('thepageofyou.com')
+      ? `${window.location.origin}/name/${safeSlug}`
+      : `https://thepageofyou.com/name/${safeSlug}`;
+    const shareText = `Discover the origin, acrostic poem & cultural references for "${data.name}" on The Page of You:\n${shareUrl}`;
     navigator.clipboard.writeText(shareText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);

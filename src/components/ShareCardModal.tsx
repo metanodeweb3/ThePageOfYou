@@ -57,9 +57,10 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
   const selectedGame: GameQuote | undefined = data.games?.find(g => g.id === selectedGameId);
   const selectedArt: ArtQuote | undefined = data.art?.find(a => a.id === selectedArtId);
 
+  const safeSlug = encodeURIComponent(data.name.trim().toLowerCase());
   const shareUrl = window.location.hostname.includes('thepageofyou.com') 
-    ? window.location.href 
-    : `https://thepageofyou.com?name=${encodeURIComponent(data.name)}`;
+    ? `${window.location.origin}/name/${safeSlug}` 
+    : `https://thepageofyou.com/name/${safeSlug}`;
   const shareText = `Check out my personalized cultural page for "${data.name}" on The Page of You! 📖🎵🎬🎮🎨`;
 
   const handleCopyLink = () => {

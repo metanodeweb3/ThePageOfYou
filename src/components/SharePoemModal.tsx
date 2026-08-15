@@ -253,9 +253,10 @@ export const SharePoemModal: React.FC<SharePoemModalProps> = ({
   if (!isOpen) return null;
 
   const acrosticLines = data.acrostic || [];
+  const safeSlug = encodeURIComponent(data.name.trim().toLowerCase());
   const shareUrl = window.location.hostname.includes('thepageofyou.com')
-    ? window.location.href
-    : `https://thepageofyou.com?name=${encodeURIComponent(data.name)}`;
+    ? `${window.location.origin}/name/${safeSlug}`
+    : `https://thepageofyou.com/name/${safeSlug}`;
   const acrosticTextFormatted = acrosticLines.map((a) => `${a.letter}: ${a.line}`).join('\n');
   const shareText = `Acrostic Poem for "${data.name}":\n\n${acrosticTextFormatted}\n\nMeaning: ${data.meaning}`;
 
