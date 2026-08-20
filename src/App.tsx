@@ -68,7 +68,12 @@ export function App() {
 
   // Dynamically update document title and meta description for SEO
   useEffect(() => {
-    if (currentName) {
+    const isDedicatedNamePage = typeof window !== 'undefined' && (
+      window.location.pathname.startsWith('/name/') ||
+      Boolean(new URLSearchParams(window.location.search).get('name'))
+    );
+
+    if (isDedicatedNamePage && currentName) {
       const formattedTitle = `${currentName} — Name Meaning, Origin & Custom Acrostic Poem | The Page of You`;
       document.title = formattedTitle;
 
@@ -76,6 +81,14 @@ export function App() {
       const metaDescription = document.querySelector('meta[name="description"]');
       if (metaDescription) {
         metaDescription.setAttribute('content', `Discover the origin, cultural history, meaning, and bespoke acrostic poem for "${currentName}". Create personalized poems, gifts, and explore verified quotes across literature, music, and film.`);
+      }
+    } else {
+      // Clean brand title for the main homepage
+      document.title = 'The Page of You — Personalised Name Origins & Custom Acrostic Poetry';
+
+      const metaDescription = document.querySelector('meta[name="description"]');
+      if (metaDescription) {
+        metaDescription.setAttribute('content', 'Discover baby name meanings, personalised name origins, bespoke acrostic poetry gifts, and cultural references across literature, song lyrics, movies, video games, and fine art.');
       }
     }
   }, [currentName]);
