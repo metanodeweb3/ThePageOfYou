@@ -12,6 +12,7 @@ import {
   ChevronRight,
   LayoutGrid,
   SlidersHorizontal,
+  Loader2,
 } from 'lucide-react';
 import { BookQuote, SongQuote, MovieQuote, GameQuote, ArtQuote } from '../types';
 import {
@@ -29,6 +30,8 @@ interface QuoteSectionProps {
   movies: MovieQuote[];
   games?: GameQuote[];
   art?: ArtQuote[];
+  onEnrichCategory?: (category: 'books' | 'songs' | 'movies' | 'games' | 'art' | 'all') => Promise<void>;
+  isEnriching?: boolean;
 }
 
 interface CarouselCategoryProps<T> {
@@ -176,10 +179,18 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
   movies,
   games = [],
   art = [],
+  onEnrichCategory,
+  isEnriching = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'all' | 'books' | 'songs' | 'movies' | 'games' | 'art'>('all');
 
   const totalMediaCount = books.length + songs.length + movies.length + games.length + art.length;
+
+  const handleDiscoverMore = () => {
+    if (onEnrichCategory && !isEnriching) {
+      onEnrichCategory(activeTab);
+    }
+  };
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 mt-6 mb-4 sm:mt-8 sm:mb-6">
@@ -534,6 +545,43 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
           />
         )}
       </div>
+
+      {/* On-Demand Expansion: Discover More References */}
+      {onEnrichCategory && (
+        <div className="mt-7 pt-5 border-t border-stone-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+          <div>
+            <p className="text-xs font-semibold text-stone-700">
+              Want more verified cultural appearances for <span className="text-stone-900 font-bold">{personName}</span>?
+            </p>
+            <p className="text-[11px] text-stone-500">
+              {activeTab === 'all'
+                ? 'Discovers additional literature, music, and cinematic references.'
+                : `Discovers additional references specifically in ${activeTab}.`}
+            </p>
+          </div>
+          <button
+            type="button"
+            id="btn-discover-more-references"
+            onClick={handleDiscoverMore}
+            disabled={isEnriching}
+            className="px-4 py-2.5 rounded-xl bg-amber-100/80 hover:bg-amber-200/90 text-amber-900 border border-amber-300/70 font-semibold text-xs transition-all shadow-xs hover:shadow flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed group cursor-pointer"
+          >
+            {isEnriching ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 text-amber-800 animate-spin" />
+                <span>Searching Cultural Archives...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5 text-amber-700 group-hover:rotate-12 transition-transform" />
+                <span>
+                  Discover More {activeTab === 'all' ? 'References' : `${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`}
+                </span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

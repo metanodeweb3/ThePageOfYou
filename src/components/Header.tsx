@@ -1,18 +1,14 @@
 import React from 'react';
-import { Bookmark, Coffee, Share2 } from 'lucide-react';
+import { Coffee, Share2 } from 'lucide-react';
 
 interface HeaderProps {
   onOpenCoffee: () => void;
   onOpenShare: () => void;
-  isBookmarked: boolean;
-  onToggleBookmark: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onOpenCoffee,
   onOpenShare,
-  isBookmarked,
-  onToggleBookmark,
 }) => {
   return (
     <header className="w-full bg-[#fbf9f5] border-b border-stone-200/80">
@@ -30,20 +26,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Action Buttons on the line below */}
         <div className="flex flex-wrap items-center justify-center gap-2.5">
-          <button
-            id="btn-header-bookmark"
-            onClick={onToggleBookmark}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all ${
-              isBookmarked
-                ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-sm'
-                : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
-            }`}
-            title="Bookmark this page for quick access"
-          >
-            <Bookmark className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-amber-600 text-amber-700' : ''}`} />
-            <span>{isBookmarked ? 'Bookmarked' : 'Bookmark'}</span>
-          </button>
-
           <button
             id="btn-header-share"
             onClick={onOpenShare}

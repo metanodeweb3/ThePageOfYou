@@ -256,35 +256,34 @@ Find real, famous, historically accurate, and verifiable cultural references for
 
 The search query "${cleanName}" can be a person's name, character, historical figure, subject, or concept.
 
-Provide an extensive, comprehensive list of up to 10 verified items per category wherever authentic matches exist in world literature, music, cinema, gaming, fine art, and architecture.
+Provide the top 2 to 3 highest-confidence, iconic, and authentic items per category wherever verifiable matches exist in world literature, music, cinema, gaming, fine art, and architecture.
 
 CRITICAL CATEGORY PRIORITIZATION RULES FOR "${cleanName}":
 
-1. BOOKS / LITERATURE (Provide up to 10 items):
+1. BOOKS / LITERATURE (2-3 iconic items):
    - MUST prioritize famous, authentic QUOTES from books/literature that explicitly mention "${cleanName}" inside the text of the quote itself or in the main character's name/title.
-   - STRICT RULE: DO NOT include books merely because the author's first or last name is "${cleanName}" (e.g. do not return books by Michael Crichton or Stephen King unless the book text or quote explicitly mentions "${cleanName}").
+   - STRICT RULE: DO NOT include books merely because the author's first or last name is "${cleanName}".
 
-2. SONGS & MUSIC (Provide up to 10 items):
-   - MUST prioritize specific, famous song LYRICS or song TITLES that explicitly contain "${cleanName}" in the lyrics or title (e.g., "Hey Jude", "Billie Jean", "Roxanne", "Sweet Caroline", "Come On Eileen", "Michael", etc.).
+2. SONGS & MUSIC (2-3 iconic items):
+   - MUST prioritize specific, famous song LYRICS or song TITLES that explicitly contain "${cleanName}" in the lyrics or title (e.g., "Hey Jude", "Billie Jean", "Roxanne", "Sweet Caroline", "Come On Eileen", etc.).
 
-3. MOVIES & CINEMA (Provide up to 10 items):
+3. MOVIES & CINEMA (2-3 iconic items):
    - MUST prioritize famous, iconic movie QUOTES or spoken dialogue lines or lead character names that explicitly mention or address "${cleanName}".
 
-4. VIDEO GAMES (Provide up to 10 items):
-   - MUST prioritize GAME TITLES or iconic character names that explicitly contain "${cleanName}" in the title, main character, or lore (e.g., "The Legend of Zelda", "Max Payne", "Alice: Madness Returns", "Super Mario Bros", "Tomb Raider").
+4. VIDEO GAMES (2-3 iconic items):
+   - MUST prioritize GAME TITLES or iconic character names that explicitly contain "${cleanName}" in the title, main character, or lore.
 
-5. FINE ART & ARCHITECTURE (Provide up to 10 items):
-   - MUST prioritize TITLES and NAMES of famous pieces of art, paintings, sculptures, or architectural landmarks/creations that explicitly contain "${cleanName}" in the title or main subject/creator (e.g., "Mona Lisa", "The Birth of Venus", "David", "Judith Slaying Holofernes", "Saint Peter's Basilica", or architectural works by Nicholas Hawksmoor / Christopher Wren / Frank Lloyd Wright if applicable).
+5. FINE ART & ARCHITECTURE (2-3 iconic items):
+   - MUST prioritize TITLES and NAMES of famous pieces of art, paintings, sculptures, or architectural landmarks/creations that explicitly contain "${cleanName}" in the title or main subject/creator.
 
 6. ETYMOLOGY, MEANING, ADJECTIVES & ACROSTIC:
-   - Origin: Provide a thorough, fascinating, and accurate historical and linguistic origin narrative (2-3 detailed sentences).
+   - Origin: Concise, fascinating, and accurate historical and linguistic origin narrative (1-2 clear sentences).
    - Meaning: Expressive, poetic summary of the name's meaning.
-   - Adjectives: Exactly 5 inspiring, vivid personality adjectives that embody the spirit and essence of the name.
+   - Adjectives: Exactly 5 inspiring personality adjectives that embody the spirit and essence of the name.
    - Acrostic: An acrostic poem where each letter of "${cleanName}" starts an inspiring line.
 
 CRITICAL ACCURACY DIRECTIVES:
-- TRUTH OVER QUANTITY: Absolutely DO NOT invent, hallucinate, or fabricate entries under any circumstances. Every single item MUST be a real, verifiable, published work, song, film, architectural creation, or game.
-- DO NOT invent fictional titles, fictional quotes, fictional character names, or fictional authors/artists to pad or fill out lists.
+- TRUTH OVER QUANTITY: Absolutely DO NOT invent or fabricate entries. Every single item MUST be a real, verifiable, published work, song, film, or game. If a category only has 1 or 2 real matches in world history, provide only those.
 
 Return strict JSON adhering to the specified schema.`;
 
@@ -380,11 +379,12 @@ Return strict JSON adhering to the specified schema.`;
       required: ['name', 'meaning', 'books', 'songs', 'movies', 'games', 'art', 'acrostic'],
     };
 
-    const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+    const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
     const modelsToTry = Array.from(new Set([
       primaryModel,
-      'gemini-3.6-flash',
       'gemini-3.1-flash-lite',
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
     ]));
 
     let parsedData = null;
@@ -394,7 +394,7 @@ Return strict JSON adhering to the specified schema.`;
       let timeoutId: NodeJS.Timeout | null = null;
       try {
         const timeoutPromise = new Promise((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 8000);
+          timeoutId = setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 7000);
         });
 
         const apiPromise = ai.models.generateContent({
@@ -403,7 +403,7 @@ Return strict JSON adhering to the specified schema.`;
           config: {
             responseMimeType: 'application/json',
             responseSchema,
-            maxOutputTokens: 3000,
+            maxOutputTokens: 1500,
           },
         });
 
@@ -430,7 +430,7 @@ Return strict JSON adhering to the specified schema.`;
 
         // If rate limited, pause briefly before trying the next model
         if (isRateLimit) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 800));
         }
       }
       if (parsedData) break;
@@ -505,6 +505,272 @@ Return strict JSON adhering to the specified schema.`;
       source: 'fallback',
       error: errorMessage,
     });
+  }
+});
+
+// Tier 2: On-Demand Cultural Reference Discovery / Enrichment
+app.post('/api/enrich-category', async (req, res) => {
+  const { name, category, existingTitles = [] } = req.body;
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Name parameter is required' });
+  }
+  const cleanName = name.trim().slice(0, 80);
+  const lowerName = cleanName.toLowerCase();
+  const normalizedName = normalizeText(cleanName);
+  const targetCategory = (category || 'all').toLowerCase();
+
+  const ai = getGeminiClient();
+  if (!ai) {
+    return res.status(503).json({ error: 'AI discovery engine not available', items: [] });
+  }
+
+  const existingTitlesList = Array.isArray(existingTitles) ? existingTitles.slice(0, 30).join(', ') : '';
+
+  let categoryInstruction = '';
+  let responseSchema: any = null;
+
+  if (targetCategory === 'books') {
+    categoryInstruction = `Find 2 to 3 NEW, distinct, authentic book quotes or literary references mentioning "${cleanName}" that are NOT in this list of already known titles: [${existingTitlesList}].`;
+    responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        books: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              author: { type: Type.STRING },
+              year: { type: Type.STRING },
+              quote: { type: Type.STRING },
+              context: { type: Type.STRING },
+            },
+            required: ['title', 'author', 'quote'],
+          },
+        },
+      },
+      required: ['books'],
+    };
+  } else if (targetCategory === 'songs') {
+    categoryInstruction = `Find 2 to 3 NEW, distinct, famous song lyrics or track titles explicitly containing "${cleanName}" that are NOT in this list: [${existingTitlesList}].`;
+    responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        songs: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              artist: { type: Type.STRING },
+              year: { type: Type.STRING },
+              lyricsQuote: { type: Type.STRING },
+              albumVibe: { type: Type.STRING },
+            },
+            required: ['title', 'artist', 'lyricsQuote'],
+          },
+        },
+      },
+      required: ['songs'],
+    };
+  } else if (targetCategory === 'movies') {
+    categoryInstruction = `Find 2 to 3 NEW, distinct, famous movie dialogue quotes or cinema character references mentioning "${cleanName}" that are NOT in this list: [${existingTitlesList}].`;
+    responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        movies: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              character: { type: Type.STRING },
+              actor: { type: Type.STRING },
+              year: { type: Type.STRING },
+              quote: { type: Type.STRING },
+            },
+            required: ['title', 'quote'],
+          },
+        },
+      },
+      required: ['movies'],
+    };
+  } else if (targetCategory === 'games') {
+    categoryInstruction = `Find 2 to 3 NEW, distinct video game lore references or character mentions featuring "${cleanName}" not in [${existingTitlesList}].`;
+    responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        games: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              character: { type: Type.STRING },
+              developer: { type: Type.STRING },
+              year: { type: Type.STRING },
+              quote: { type: Type.STRING },
+            },
+            required: ['title', 'quote'],
+          },
+        },
+      },
+      required: ['games'],
+    };
+  } else if (targetCategory === 'art') {
+    categoryInstruction = `Find 2 to 3 NEW, distinct fine art works, paintings, sculptures or landmarks featuring or created by "${cleanName}" not in [${existingTitlesList}].`;
+    responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        art: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              artist: { type: Type.STRING },
+              year: { type: Type.STRING },
+              medium: { type: Type.STRING },
+              quote: { type: Type.STRING },
+            },
+            required: ['title', 'artist', 'quote'],
+          },
+        },
+      },
+      required: ['art'],
+    };
+  } else {
+    // General expansion across primary media
+    categoryInstruction = `Find 2 additional distinct books, songs, and movies mentioning "${cleanName}" not in [${existingTitlesList}].`;
+    responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        books: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              author: { type: Type.STRING },
+              year: { type: Type.STRING },
+              quote: { type: Type.STRING },
+            },
+            required: ['title', 'author', 'quote'],
+          },
+        },
+        songs: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              artist: { type: Type.STRING },
+              year: { type: Type.STRING },
+              lyricsQuote: { type: Type.STRING },
+            },
+            required: ['title', 'artist', 'lyricsQuote'],
+          },
+        },
+        movies: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              quote: { type: Type.STRING },
+            },
+            required: ['title', 'quote'],
+          },
+        },
+      },
+    };
+  }
+
+  const prompt = `You are a meticulous cultural archivist.
+For the search term "${cleanName}":
+${categoryInstruction}
+
+STRICT RULE:
+- TRUTH OVER QUANTITY: Absolutely DO NOT invent or fabricate entries. Every single item MUST be a real, verifiable, published work.
+- If fewer authentic matches exist in world history, return only the verifiable ones.
+
+Return strict JSON adhering to the specified schema.`;
+
+  try {
+    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-3.6-flash'];
+    let enrichedData: any = null;
+
+    for (const model of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema,
+            maxOutputTokens: 1000,
+          },
+        });
+        if (response && response.text) {
+          let text = response.text.trim();
+          if (text.startsWith('```')) {
+            text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+          }
+          enrichedData = JSON.parse(text);
+          if (enrichedData) break;
+        }
+      } catch (err) {
+        console.warn(`Enrichment attempt failed on ${model}:`, err);
+      }
+    }
+
+    if (!enrichedData) {
+      return res.json({ success: false, category: targetCategory, items: [], message: 'No additional references found.' });
+    }
+
+    // Merge into Firestore cache & in-memory cache
+    const db = getFirestoreDb();
+    if (db) {
+      try {
+        const cacheDocRef = doc(db, 'name_cache', normalizedName);
+        const docSnap = await getDoc(cacheDocRef);
+        if (docSnap.exists()) {
+          const currentDoc = docSnap.data()?.data || {};
+          const merged = { ...currentDoc };
+
+          if (enrichedData.books) {
+            merged.books = [...(merged.books || []), ...enrichedData.books];
+          }
+          if (enrichedData.songs) {
+            merged.songs = [...(merged.songs || []), ...enrichedData.songs];
+          }
+          if (enrichedData.movies) {
+            merged.movies = [...(merged.movies || []), ...enrichedData.movies];
+          }
+          if (enrichedData.games) {
+            merged.games = [...(merged.games || []), ...enrichedData.games];
+          }
+          if (enrichedData.art) {
+            merged.art = [...(merged.art || []), ...enrichedData.art];
+          }
+
+          await setDoc(cacheDocRef, { data: merged }, { merge: true });
+          setInLookupCache(lowerName, merged);
+          setInLookupCache(normalizedName, merged);
+        }
+      } catch (e) {
+        console.warn('Failed merging enriched references in Firestore:', e);
+      }
+    }
+
+    return res.json({
+      success: true,
+      category: targetCategory,
+      data: enrichedData,
+    });
+  } catch (err: any) {
+    console.error('Error during enrich-category API call:', err);
+    return res.status(500).json({ error: 'Failed to discover additional cultural references' });
   }
 });
 

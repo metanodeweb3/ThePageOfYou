@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Sparkles, RefreshCcw, Square, ArrowDown, CheckCircle2 } from 'lucide-react';
+import { Search, Sparkles, RefreshCcw, Square, ArrowDown, CheckCircle2, BookOpen, Music2, Feather, Image } from 'lucide-react';
 
 interface NameSearchProps {
   currentName: string;
@@ -69,9 +69,29 @@ export const NameSearch: React.FC<NameSearchProps> = ({
         <h2 className="text-3xl md:text-4xl font-serif font-bold text-stone-900 tracking-tight mb-2">
           Enter Your Name
         </h2>
-        <p className="text-sm text-stone-600 max-w-xl mx-auto mb-6">
+        <p className="text-sm text-stone-600 max-w-xl mx-auto mb-5">
           Discover books, songs, movies, video games, and fine art where your name lives in cultural history.
         </p>
+
+        {/* Feature Output Badges - Instant clarity on what gets created */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-6 max-w-2xl mx-auto">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100/90 text-stone-700 border border-stone-200/90 text-xs font-medium">
+            <BookOpen className="w-3.5 h-3.5 text-stone-600" />
+            <span>Origin & Meaning</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100/90 text-stone-700 border border-stone-200/90 text-xs font-medium">
+            <Music2 className="w-3.5 h-3.5 text-stone-600" />
+            <span>Literature & Song Quotes</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100/90 text-stone-700 border border-stone-200/90 text-xs font-medium">
+            <Feather className="w-3.5 h-3.5 text-stone-600" />
+            <span>Custom Acrostic Poem</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100/90 text-stone-700 border border-stone-200/90 text-xs font-medium">
+            <Image className="w-3.5 h-3.5 text-stone-600" />
+            <span>Keepsake Cards</span>
+          </span>
+        </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-xl mx-auto">
           <div className="relative w-full">
@@ -80,7 +100,7 @@ export const NameSearch: React.FC<NameSearchProps> = ({
               type="text"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
-              placeholder="e.g. Eleanor, Jude, Sarah..."
+              placeholder="e.g. Eleanor, Jude, Sarah, Maya..."
               maxLength={30}
               className="w-full bg-stone-50/80 border border-stone-300 focus:border-stone-800 focus:bg-white text-stone-900 text-base rounded-xl px-4 py-3.5 pl-11 shadow-inner focus:outline-none transition-all placeholder:text-stone-400 font-medium"
             />

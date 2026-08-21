@@ -3,7 +3,6 @@ import { Header } from './components/Header';
 import { NameSearch } from './components/NameSearch';
 import { QuoteSection } from './components/QuoteSection';
 import { AcrosticPoem } from './components/AcrosticPoem';
-import { VibeMeter } from './components/VibeMeter';
 import { ShareBanner } from './components/ShareBanner';
 import { ShareCardModal } from './components/ShareCardModal';
 import { CoffeeModal } from './components/CoffeeModal';
@@ -29,11 +28,11 @@ export function App() {
   const [currentName, setCurrentName] = useState<string>(initialPreloadedName || 'Jude');
   const [nameData, setNameData] = useState<PersonNameData>(initialPreloadedData || POPULAR_NAMES_DATA.jude);
   const [isLoading, setIsLoading] = useState(false);
+  const [isEnriching, setIsEnriching] = useState(false);
   const [isCoffeeOpen, setIsCoffeeOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [forceShowCookieBanner, setForceShowCookieBanner] = useState(false);
-  const [isBookmarked, setIsBookmarked] = useState(false);
   const [popularNames, setPopularNames] = useState<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const footerRef = useRef<HTMLElement | null>(null);
@@ -114,20 +113,8 @@ export function App() {
     const nameParam = params.get('name');
     if (nameParam && nameParam.trim()) {
       handleSearchName(nameParam.trim());
-    } else {
-      // Check bookmark status
-      const saved = localStorage.getItem('pageofyou_bookmarked');
-      if (saved === 'true') {
-        setIsBookmarked(true);
-      }
     }
   }, []);
-
-  const handleToggleBookmark = () => {
-    const newStatus = !isBookmarked;
-    setIsBookmarked(newStatus);
-    localStorage.setItem('pageofyou_bookmarked', newStatus ? 'true' : 'false');
-  };
 
   const handleCancelSearch = () => {
     if (abortControllerRef.current) {
@@ -263,13 +250,102 @@ export function App() {
     abortControllerRef.current = null;
   };
 
+  const handleEnrichCategory = async (category: 'books' | 'songs' | 'movies' | 'games' | 'art' | 'all') => {
+    if (isEnriching || !nameData.name) return;
+    setIsEnriching(true);
+
+    try {
+      // Collect existing titles to avoid duplicates
+      const existingTitles: string[] = [
+        ...nameData.books.map((b) => b.title),
+        ...nameData.songs.map((s) => s.title),
+        ...nameData.movies.map((m) => m.title),
+        ...(nameData.games || []).map((g) => g.title),
+        ...(nameData.art || []).map((a) => a.title),
+      ];
+
+      const res = await fetch('/api/enrich-category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: nameData.name,
+          category,
+          existingTitles,
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        if (result.success && result.data) {
+          const newData = result.data;
+          setNameData((prev) => {
+            const updated: PersonNameData = {
+              ...prev,
+              books: newData.books
+                ? [
+                    ...prev.books,
+                    ...newData.books.map((b: any, i: number) => ({
+                      ...b,
+                      id: `enrich-b-${Date.now()}-${i}`,
+                    })),
+                  ]
+                : prev.books,
+              songs: newData.songs
+                ? [
+                    ...prev.songs,
+                    ...newData.songs.map((s: any, i: number) => ({
+                      ...s,
+                      id: `enrich-s-${Date.now()}-${i}`,
+                    })),
+                  ]
+                : prev.songs,
+              movies: newData.movies
+                ? [
+                    ...prev.movies,
+                    ...newData.movies.map((m: any, i: number) => ({
+                      ...m,
+                      id: `enrich-m-${Date.now()}-${i}`,
+                    })),
+                  ]
+                : prev.movies,
+              games: newData.games
+                ? [
+                    ...(prev.games || []),
+                    ...newData.games.map((g: any, i: number) => ({
+                      ...g,
+                      id: `enrich-g-${Date.now()}-${i}`,
+                    })),
+                  ]
+                : prev.games,
+              art: newData.art
+                ? [
+                    ...(prev.art || []),
+                    ...newData.art.map((a: any, i: number) => ({
+                      ...a,
+                      id: `enrich-a-${Date.now()}-${i}`,
+                    })),
+                  ]
+                : prev.art,
+            };
+
+            // Update Firestore cache document asynchronously
+            cacheNameData(updated).catch((e) => console.warn('Failed to update cache after enrichment:', e));
+            return updated;
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Enrichment request error:', err);
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#faf8f5] text-stone-900 font-sans flex flex-col justify-between selection:bg-amber-200 selection:text-stone-900">
       <Header
         onOpenCoffee={() => setIsCoffeeOpen(true)}
         onOpenShare={() => setIsShareOpen(true)}
-        isBookmarked={isBookmarked}
-        onToggleBookmark={handleToggleBookmark}
       />
 
       {/* Main Content Area */}
@@ -282,9 +358,6 @@ export function App() {
           isLoading={isLoading}
           popularNames={popularNames}
         />
-
-        {/* Cultural Vibe Meter */}
-        <VibeMeter data={nameData} />
 
         {/* Prominent Share Keepsake Banner */}
         <ShareBanner
@@ -300,6 +373,8 @@ export function App() {
           movies={nameData.movies}
           games={nameData.games}
           art={nameData.art}
+          onEnrichCategory={handleEnrichCategory}
+          isEnriching={isEnriching}
         />
 
         {/* Acrostic Poem Generator */}
