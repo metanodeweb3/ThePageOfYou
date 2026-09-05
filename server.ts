@@ -146,6 +146,50 @@ app.get('/sitemap.xml', async (req, res) => {
   }
 });
 
+// Helper to validate cultural relevance and prevent AI hallucinations (e.g. Kaspar Hauser for Pascal)
+function isValidCulturalItem(item: any, searchName: string): boolean {
+  if (!item || typeof item !== 'object') return false;
+
+  const text = JSON.stringify(item).toLowerCase();
+
+  // Reject placeholder artifacts
+  if (
+    text.includes('cultural archive') ||
+    text.includes('global musical ensemble') ||
+    text.includes('master ensemble cast') ||
+    text.includes('interactive media studios') ||
+    text.includes('master fine artists')
+  ) {
+    return false;
+  }
+
+  // Extract meaningful alphanumeric name tokens (length >= 3)
+  const clean = searchName.toLowerCase().trim();
+  const tokens = clean.split(/[^a-z0-9]+/).filter(t => t.length >= 3);
+  if (tokens.length === 0) {
+    return text.includes(clean);
+  }
+
+  // The item must connect to at least one primary token of the search name
+  return tokens.some(token => text.includes(token));
+}
+
+// Verify that cached entries are complete (at least 2 items per category) and free of hallucinations
+function isCachedDataValid(data: any, searchName: string): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const categories = ['books', 'songs', 'movies', 'games', 'art'];
+  
+  const hasMinimumItems = categories.every(
+    cat => Array.isArray(data[cat]) && data[cat].length >= 2
+  );
+  if (!hasMinimumItems) return false;
+
+  const hasNoHallucinations = categories.every(
+    cat => Array.isArray(data[cat]) && data[cat].every((it: any) => isValidCulturalItem(it, searchName))
+  );
+  return hasNoHallucinations;
+}
+
 // API endpoint to lookup cultural references for a name
 app.post('/api/lookup', async (req, res) => {
   const { name } = req.body;
@@ -188,10 +232,12 @@ app.post('/api/lookup', async (req, res) => {
   // 2. Check in-memory lookup cache
   const cachedEntry = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
   if (cachedEntry && (now - cachedEntry.timestamp < CACHE_TTL_MS)) {
-    return res.json({
-      ...cachedEntry.data,
-      source: 'cache',
-    });
+    if (isCachedDataValid(cachedEntry.data, cleanName)) {
+      return res.json({
+        ...cachedEntry.data,
+        source: 'cache',
+      });
+    }
   }
 
   // 3. Check curated static dataset next
@@ -211,27 +257,30 @@ app.post('/api/lookup', async (req, res) => {
       if (docSnap.exists()) {
         const firestoreData = docSnap.data();
         if (firestoreData && firestoreData.data) {
-          // Increment search count asynchronously
-          setDoc(cacheDocRef, {
-            searchCount: increment(1),
-            lastSearchedAt: new Date().toISOString(),
-          }, { merge: true }).catch(() => {});
+          const isFreshSchema = (firestoreData.schemaVersion || 0) >= 3;
+          if (isFreshSchema && isCachedDataValid(firestoreData.data, cleanName)) {
+            // Increment search count asynchronously
+            setDoc(cacheDocRef, {
+              searchCount: increment(1),
+              lastSearchedAt: new Date().toISOString(),
+            }, { merge: true }).catch(() => {});
 
-          const popDocRef = doc(db, 'popular_names', lowerName);
-          setDoc(popDocRef, {
-            name: cleanName,
-            searchCount: increment(1),
-            lastSearchedAt: new Date().toISOString(),
-          }, { merge: true }).catch(() => {});
+            const popDocRef = doc(db, 'popular_names', lowerName);
+            setDoc(popDocRef, {
+              name: cleanName,
+              searchCount: increment(1),
+              lastSearchedAt: new Date().toISOString(),
+            }, { merge: true }).catch(() => {});
 
-          // Save in server in-memory cache for ultra-fast subsequent hits
-          setInLookupCache(lowerName, firestoreData.data);
-          setInLookupCache(normalizedName, firestoreData.data);
+            // Save in server in-memory cache for ultra-fast subsequent hits
+            setInLookupCache(lowerName, firestoreData.data);
+            setInLookupCache(normalizedName, firestoreData.data);
 
-          return res.json({
-            ...firestoreData.data,
-            source: 'firestore_cache',
-          });
+            return res.json({
+              ...firestoreData.data,
+              source: 'firestore_cache',
+            });
+          }
         }
       }
     } catch (err) {
@@ -251,39 +300,34 @@ app.post('/api/lookup', async (req, res) => {
   }
 
   try {
-    const prompt = `You are an expert, meticulous cultural archivist for "The Page of You".
-Find real, famous, historically accurate, and verifiable cultural references for the search query or name "${cleanName}".
+    const prompt = `You are the cultural historian for "The Page of You".
+Find iconic, famous, historically authentic, and verifiable cultural references for the name or search term "${cleanName}".
 
-The search query "${cleanName}" can be a person's name, character, historical figure, subject, or concept.
+TARGET: You MUST provide exactly 2 to 3 distinct, high-quality entries for EACH of the 5 categories (books, songs, movies, games, art).
 
-Provide the top 2 to 3 highest-confidence, iconic, and authentic items per category wherever verifiable matches exist in world literature, music, cinema, gaming, fine art, and architecture.
+WHAT COUNTS AS A VALID CULTURAL CONNECTION FOR "${cleanName}":
+1. Titular or prominent characters named "${cleanName}" (e.g., Pascal the chameleon in Disney's "Tangled", Pascal in "NieR: Automata", Pascal the philosopher otter in "Animal Crossing").
+2. Renowned creators, philosophers, authors, artists, or historical figures bearing the name "${cleanName}" (e.g., Blaise Pascal's "Pensées" and "The Pascaline" mechanical calculator for Pascal; Leonardo da Vinci for Leonardo; Dante for Dante).
+3. Acclaimed film/TV works starring celebrated actors or creators prominently named "${cleanName}" (e.g., Pedro Pascal in "The Last of Us", "The Mandalorian", or "Gladiator II").
+4. Songs, lyrics, game lore, architectural works, or books that explicitly feature "${cleanName}" in their title, dialogue, lyrics, or subject matter.
 
-CRITICAL CATEGORY PRIORITIZATION RULES FOR "${cleanName}":
+CATEGORY RULES (Provide 2 to 3 items in each):
+- books (2-3 items): Notable books featuring a character named "${cleanName}", iconic quotes mentioning "${cleanName}", or seminal masterpieces written by legendary thinkers/authors named "${cleanName}" (e.g., Blaise Pascal's "Pensées").
+- songs (2-3 items): Well-known songs with "${cleanName}" in the title, memorable lyrics singing "${cleanName}", or landmark recordings by celebrated artists named "${cleanName}".
+- movies (2-3 items): Renowned films or series featuring a character named "${cleanName}" (e.g., "Tangled"), famous dialogue quotes, or starring acclaimed actors named "${cleanName}" (e.g., Pedro Pascal).
+- games (2-3 items): Major video games with a memorable character named "${cleanName}" (e.g., "NieR: Automata", "Animal Crossing", "Pascal's Wager"), or featuring "${cleanName}" in lore or title.
+- art (2-3 items): Famous paintings, sculptures, historical inventions, monuments, or portraits depicting or created by figures named "${cleanName}" (e.g., Pajou's statue of Blaise Pascal in the Louvre, "The Pascaline" mechanical calculator).
 
-1. BOOKS / LITERATURE (2-3 iconic items):
-   - MUST prioritize famous, authentic QUOTES from books/literature that explicitly mention "${cleanName}" inside the text of the quote itself or in the main character's name/title.
-   - STRICT RULE: DO NOT include books merely because the author's first or last name is "${cleanName}".
+STRICT ANTI-HALLUCINATION INTEGRITY:
+- Every single entry MUST genuinely connect to "${cleanName}".
+- NEVER substitute phonetically similar but different names (e.g., NEVER return "Kaspar" for "Pascal", NEVER return "Marcus" for "Lucas", NEVER return "Julian" for "Adrian"). If an item is not about "${cleanName}", it is strictly forbidden.
+- Real, verifiable works only. Do not invent fake titles or fake artists.
 
-2. SONGS & MUSIC (2-3 iconic items):
-   - MUST prioritize specific, famous song LYRICS or song TITLES that explicitly contain "${cleanName}" in the lyrics or title (e.g., "Hey Jude", "Billie Jean", "Roxanne", "Sweet Caroline", "Come On Eileen", etc.).
-
-3. MOVIES & CINEMA (2-3 iconic items):
-   - MUST prioritize famous, iconic movie QUOTES or spoken dialogue lines or lead character names that explicitly mention or address "${cleanName}".
-
-4. VIDEO GAMES (2-3 iconic items):
-   - MUST prioritize GAME TITLES or iconic character names that explicitly contain "${cleanName}" in the title, main character, or lore.
-
-5. FINE ART & ARCHITECTURE (2-3 iconic items):
-   - MUST prioritize TITLES and NAMES of famous pieces of art, paintings, sculptures, or architectural landmarks/creations that explicitly contain "${cleanName}" in the title or main subject/creator.
-
-6. ETYMOLOGY, MEANING, ADJECTIVES & ACROSTIC:
-   - Origin: Concise, fascinating, and accurate historical and linguistic origin narrative (1-2 clear sentences).
-   - Meaning: Expressive, poetic summary of the name's meaning.
-   - Adjectives: Exactly 5 inspiring personality adjectives that embody the spirit and essence of the name.
-   - Acrostic: An acrostic poem where each letter of "${cleanName}" starts an inspiring line.
-
-CRITICAL ACCURACY DIRECTIVES:
-- TRUTH OVER QUANTITY: Absolutely DO NOT invent or fabricate entries. Every single item MUST be a real, verifiable, published work, song, film, or game. If a category only has 1 or 2 real matches in world history, provide only those.
+ETYMOLOGY & ACROSTIC:
+- Origin: 1-2 engaging, historically accurate sentences on linguistic roots.
+- Meaning: Eloquent, inspiring summary of the name's meaning.
+- Adjectives: Exactly 5 inspiring personality adjectives fitting the spirit of the name.
+- Acrostic: An acrostic poem where each letter of "${cleanName}" starts an inspiring line.
 
 Return strict JSON adhering to the specified schema.`;
 
@@ -383,8 +427,7 @@ Return strict JSON adhering to the specified schema.`;
     const modelsToTry = Array.from(new Set([
       primaryModel,
       'gemini-3.1-flash-lite',
-      'gemini-3.7-flash',
-      'gemini-3.6-flash',
+      'gemini-2.5-flash',
     ]));
 
     let parsedData = null;
@@ -403,7 +446,7 @@ Return strict JSON adhering to the specified schema.`;
           config: {
             responseMimeType: 'application/json',
             responseSchema,
-            maxOutputTokens: 1500,
+            maxOutputTokens: 2048,
           },
         });
 
@@ -437,23 +480,21 @@ Return strict JSON adhering to the specified schema.`;
     }
 
     if (parsedData) {
-      // Sanitize response to remove any placeholder strings
-      const sanitizeList = (arr: any[]) => {
+      // Clean and validate items to guarantee authenticity and eliminate hallucinations
+      const ensureIdsAndFilter = (arr: any[], category: string) => {
         if (!Array.isArray(arr)) return [];
-        return arr.filter(item => {
-          const text = JSON.stringify(item).toLowerCase();
-          return !text.includes('cultural archive') &&
-                 !text.includes('global musical ensemble') &&
-                 !text.includes('master ensemble cast') &&
-                 !text.includes('interactive media studios') &&
-                 !text.includes('master fine artists');
-        });
+        return arr
+          .filter(item => isValidCulturalItem(item, cleanName))
+          .map((item, idx) => ({
+            ...item,
+            id: item.id || `${normalizedName}-${category}-${idx + 1}-${Date.now().toString(36)}`,
+          }));
       };
-      parsedData.books = sanitizeList(parsedData.books);
-      parsedData.songs = sanitizeList(parsedData.songs);
-      parsedData.movies = sanitizeList(parsedData.movies);
-      parsedData.games = sanitizeList(parsedData.games);
-      parsedData.art = sanitizeList(parsedData.art);
+      parsedData.books = ensureIdsAndFilter(parsedData.books, 'books');
+      parsedData.songs = ensureIdsAndFilter(parsedData.songs, 'songs');
+      parsedData.movies = ensureIdsAndFilter(parsedData.movies, 'movies');
+      parsedData.games = ensureIdsAndFilter(parsedData.games, 'games');
+      parsedData.art = ensureIdsAndFilter(parsedData.art, 'art');
 
       // Save to memory cache to eliminate future duplicate API calls
       setInLookupCache(lowerName, parsedData);
@@ -469,7 +510,7 @@ Return strict JSON adhering to the specified schema.`;
             searchCount: 1,
             lastSearchedAt: new Date().toISOString(),
             createdAt: new Date().toISOString(),
-            schemaVersion: 2,
+            schemaVersion: 3,
           }, { merge: true }).catch(e => console.warn('Firestore save name_cache error:', e));
 
           const popDocRef = doc(db, 'popular_names', normalizedName);
@@ -530,7 +571,7 @@ app.post('/api/enrich-category', async (req, res) => {
   let responseSchema: any = null;
 
   if (targetCategory === 'books') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct, authentic book quotes or literary references mentioning "${cleanName}" that are NOT in this list of already known titles: [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 to 3 NEW, distinct, authentic book references or literary characters/works connecting to "${cleanName}" (such as characters named "${cleanName}", iconic quotes mentioning "${cleanName}", or seminal works by authors named "${cleanName}") not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -552,7 +593,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['books'],
     };
   } else if (targetCategory === 'songs') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct, famous song lyrics or track titles explicitly containing "${cleanName}" that are NOT in this list: [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 to 3 NEW, distinct song lyrics, track titles, or celebrated songs mentioning or performed by "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -574,7 +615,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['songs'],
     };
   } else if (targetCategory === 'movies') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct, famous movie dialogue quotes or cinema character references mentioning "${cleanName}" that are NOT in this list: [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 to 3 NEW, distinct film/TV references, iconic dialogue quotes, or works starring characters or actors named "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -596,7 +637,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['movies'],
     };
   } else if (targetCategory === 'games') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct video game lore references or character mentions featuring "${cleanName}" not in [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 to 3 NEW, distinct video game lore references, character mentions, or game titles featuring "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -618,7 +659,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['games'],
     };
   } else if (targetCategory === 'art') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct fine art works, paintings, sculptures or landmarks featuring or created by "${cleanName}" not in [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 to 3 NEW, distinct fine art works, paintings, sculptures, historical inventions, or landmarks depicting or created by "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -641,7 +682,7 @@ app.post('/api/enrich-category', async (req, res) => {
     };
   } else {
     // General expansion across primary media
-    categoryInstruction = `Find 2 additional distinct books, songs, and movies mentioning "${cleanName}" not in [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 additional distinct books, songs, and movies connecting to "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -686,18 +727,24 @@ app.post('/api/enrich-category', async (req, res) => {
     };
   }
 
-  const prompt = `You are a meticulous cultural archivist.
+  const prompt = `You are a meticulous cultural archivist for "The Page of You".
 For the search term "${cleanName}":
 ${categoryInstruction}
 
-STRICT RULE:
-- TRUTH OVER QUANTITY: Absolutely DO NOT invent or fabricate entries. Every single item MUST be a real, verifiable, published work.
-- If fewer authentic matches exist in world history, return only the verifiable ones.
+WHAT COUNTS AS A VALID REFERENCE FOR "${cleanName}":
+- Titular or featured characters named "${cleanName}"
+- Renowned creators, philosophers, authors, or artists named "${cleanName}"
+- Works starring famous actors or creators named "${cleanName}"
+- Direct dialogue quotes, lyrics, or titles explicitly containing "${cleanName}"
+
+STRICT INTEGRITY RULES:
+- NEVER confuse "${cleanName}" with phonetically similar but different names. Every returned item MUST genuinely connect to "${cleanName}".
+- Real, verifiable works only. Do not invent fake titles or fake authors.
 
 Return strict JSON adhering to the specified schema.`;
 
   try {
-    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-3.6-flash'];
+    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-2.5-flash'];
     let enrichedData: any = null;
 
     for (const model of modelsToTry) {
@@ -708,7 +755,7 @@ Return strict JSON adhering to the specified schema.`;
           config: {
             responseMimeType: 'application/json',
             responseSchema,
-            maxOutputTokens: 1000,
+            maxOutputTokens: 1200,
           },
         });
         if (response && response.text) {
@@ -727,6 +774,19 @@ Return strict JSON adhering to the specified schema.`;
     if (!enrichedData) {
       return res.json({ success: false, category: targetCategory, items: [], message: 'No additional references found.' });
     }
+
+    // Validate and attach IDs to enriched items
+    const processEnrichedCategory = (cat: string) => {
+      if (Array.isArray(enrichedData[cat])) {
+        enrichedData[cat] = enrichedData[cat]
+          .filter((item: any) => isValidCulturalItem(item, cleanName))
+          .map((item: any, idx: number) => ({
+            ...item,
+            id: item.id || `${normalizedName}-${cat}-enriched-${idx + 1}-${Date.now().toString(36)}`,
+          }));
+      }
+    };
+    ['books', 'songs', 'movies', 'games', 'art'].forEach(processEnrichedCategory);
 
     // Merge into Firestore cache & in-memory cache
     const db = getFirestoreDb();

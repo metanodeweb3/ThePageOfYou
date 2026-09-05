@@ -140,42 +140,11 @@ export function findFallbackName(query: string): PersonNameData {
     return POPULAR_NAMES_DATA[lower];
   }
 
-  // 2. Substring & Root Match
-  for (const [key, val] of Object.entries(POPULAR_NAMES_DATA)) {
-    const keyNorm = normalizeText(key);
-    if (normalized.includes(keyNorm) || keyNorm.includes(normalized)) {
-      return {
-        ...val,
-        name: clean,
-      };
-    }
-  }
-
-  // 3. Fuzzy Levenshtein Distance Match (threshold: max 2 edits)
-  let bestMatch: PersonNameData | null = null;
-  let minDistance = Infinity;
-
-  for (const [key, val] of Object.entries(POPULAR_NAMES_DATA)) {
-    const keyNorm = normalizeText(key);
-    const dist = levenshteinDistance(normalized, keyNorm);
-    if (dist <= 2 && dist < minDistance) {
-      minDistance = dist;
-      bestMatch = val;
-    }
-  }
-
-  if (bestMatch) {
-    return {
-      ...bestMatch,
-      name: clean,
-    };
-  }
-
-  // 4. Phonetic Soundex Match
-  const targetSoundex = soundex(normalized);
-  if (targetSoundex) {
+  // 2. High-confidence minor typo check for curated names (Levenshtein = 1 on longer names)
+  if (normalized.length >= 5) {
     for (const [key, val] of Object.entries(POPULAR_NAMES_DATA)) {
-      if (soundex(key) === targetSoundex) {
+      const keyNorm = normalizeText(key);
+      if (levenshteinDistance(normalized, keyNorm) === 1) {
         return {
           ...val,
           name: clean,
@@ -184,7 +153,7 @@ export function findFallbackName(query: string): PersonNameData {
     }
   }
 
-  // 5. Dynamic fallback acrostic generation for unique name
+  // 3. Dynamic fallback acrostic generation for custom name
   return generateDynamicNameData(clean);
 }
 

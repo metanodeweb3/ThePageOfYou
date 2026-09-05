@@ -153,16 +153,16 @@ function CarouselCategorySection<T extends { id: string }>({
           onScroll={updateScrollState}
           className="flex overflow-x-auto gap-3.5 sm:gap-4.5 scroll-smooth snap-x snap-mandatory pb-3 pt-1 px-1 -mx-1 horizontal-scroll-bar"
         >
-          {items.map((item) => (
-            <div key={item.id} className="flex-none w-[260px] sm:w-[310px] md:w-[320px] snap-start flex flex-col">
+          {items.map((item, idx) => (
+            <div key={item.id || `${id}-carousel-${idx}`} className="flex-none w-[260px] sm:w-[310px] md:w-[320px] snap-start flex flex-col">
               {renderCard(item)}
             </div>
           ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 pt-1">
-          {items.map((item) => (
-            <div key={item.id} className="flex flex-col">
+          {items.map((item, idx) => (
+            <div key={item.id || `${id}-grid-${idx}`} className="flex flex-col">
               {renderCard(item)}
             </div>
           ))}
