@@ -3,11 +3,17 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /popular_names/{document=**} {
       allow read: if true;
-      allow write: if true;
+      allow create, update: if request.resource.data.name is string
+                            && request.resource.data.name.size() > 0
+                            && request.resource.data.name.size() <= 100;
+      allow delete: if false;
     }
     match /name_cache/{document=**} {
       allow read: if true;
-      allow write: if true;
+      allow create, update: if request.resource.data.name is string
+                            && request.resource.data.name.size() > 0
+                            && request.resource.data.name.size() <= 100;
+      allow delete: if false;
     }
   }
 }

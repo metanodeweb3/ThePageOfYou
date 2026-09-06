@@ -13,6 +13,7 @@ import { normalizeText } from './src/utils/searchEngine';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', true);
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(compression());
@@ -89,7 +90,7 @@ setInterval(() => {
 // Direct route for robots.txt
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
-  res.send('User-agent: *\nAllow: /\n\nSitemap: https://thepageofyou.com/sitemap.xml\n');
+  res.send('User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: https://thepageofyou.com/sitemap.xml\n');
 });
 
 // Dynamic XML Sitemap for all curated and cached popular names
@@ -109,6 +110,23 @@ app.get('/sitemap.xml', async (req, res) => {
     for (const key of lookupCache.keys()) {
       if (key && key.trim() && key.length > 1 && !key.includes(' ') && !key.includes('%')) {
         namesSet.add(key.trim().toLowerCase());
+      }
+    }
+
+    // 3. Try to add recently cached names from Firestore if available
+    const db = getFirestoreDb();
+    if (db) {
+      try {
+        const { collection, getDocs, limit, query } = await import('firebase/firestore');
+        const popQ = query(collection(db, 'popular_names'), limit(250));
+        const popSnap = await getDocs(popQ);
+        popSnap.forEach((d: any) => {
+          if (d.id && d.id.trim()) {
+            namesSet.add(d.id.trim().toLowerCase());
+          }
+        });
+      } catch (fsErr) {
+        console.warn('Sitemap Firestore query notice:', fsErr);
       }
     }
 
@@ -143,6 +161,94 @@ app.get('/sitemap.xml', async (req, res) => {
   } catch (err) {
     console.error('Failed generating sitemap.xml:', err);
     res.status(500).type('text/plain').send('Error generating sitemap');
+  }
+});
+
+// Dynamic Social Preview (OG Card) SVG Generator
+app.get(['/api/og-image', '/api/og-image/:nameSlug'], async (req, res) => {
+  try {
+    const rawSlug = req.params.nameSlug;
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800');
+
+    // If no specific name requested, serve base brand card
+    if (!rawSlug || rawSlug.trim() === '') {
+      const defaultSvgPath = path.join(process.cwd(), 'public', 'og-image.svg');
+      if (fs.existsSync(defaultSvgPath)) {
+        return res.send(fs.readFileSync(defaultSvgPath, 'utf-8'));
+      }
+    }
+
+    const cleanName = decodeURIComponent(rawSlug || '').trim();
+    const lowerName = cleanName.toLowerCase();
+    const normalizedName = normalizeText(cleanName);
+
+    let nameData: any = POPULAR_NAMES_DATA[lowerName] || POPULAR_NAMES_DATA[normalizedName];
+    if (!nameData) {
+      const cached = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
+      if (cached?.data) nameData = cached.data;
+    }
+    if (!nameData) {
+      nameData = findFallbackName(cleanName);
+    }
+
+    const nameUpper = cleanName ? cleanName.toUpperCase() : 'THE PAGE OF YOU';
+    const meaning = (nameData?.meaning || 'Discover your name origin and bespoke acrostic poetry.').slice(0, 85);
+    const origin = (nameData?.origin || 'Cultural Heritage').slice(0, 40);
+    const acrostic = (nameData?.acrostic || []).slice(0, 4);
+
+    const safeMeaning = meaning.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const safeOrigin = origin.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const acrosticSvgLines = acrostic.map((a: any, idx: number) => {
+      const y = 350 + (idx * 38);
+      const safeLine = (a.line || '').slice(0, 55).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      return `
+        <g transform="translate(190, ${y})">
+          <rect x="0" y="-18" width="28" height="28" rx="6" fill="#F59E0B" fill-opacity="0.18" stroke="#D97706" stroke-width="1" />
+          <text x="14" y="2" text-anchor="middle" font-family="Georgia, serif" font-weight="bold" font-size="15" fill="#B45309">${a.letter}</text>
+          <text x="40" y="2" font-family="Georgia, serif" font-style="italic" font-size="16" fill="#292524">${safeLine}</text>
+        </g>
+      `;
+    }).join('');
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+      <defs>
+        <linearGradient id="bgG" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#FAF9F6"/>
+          <stop offset="50%" stop-color="#F5F3EE"/>
+          <stop offset="100%" stop-color="#EFECE6"/>
+        </linearGradient>
+      </defs>
+      <rect width="1200" height="630" fill="url(#bgG)"/>
+      <rect x="36" y="36" width="1128" height="558" rx="8" fill="none" stroke="#D97706" stroke-width="3.5" stroke-opacity="0.45"/>
+      <rect x="46" y="46" width="1108" height="538" rx="6" fill="none" stroke="#78716C" stroke-width="1.2" stroke-opacity="0.3"/>
+      
+      <!-- Eyebrow -->
+      <text x="600" y="90" text-anchor="middle" font-family="Georgia, serif" font-size="13" font-weight="bold" letter-spacing="4" fill="#B45309">✦ THE PAGE OF YOU &bull; PERSONAL KEEPSAKE ✦</text>
+
+      <!-- Name Banner -->
+      <rect x="250" y="116" width="700" height="84" rx="12" fill="#1C1917"/>
+      <rect x="254" y="120" width="692" height="76" rx="9" fill="none" stroke="#D97706" stroke-width="1.5"/>
+      <text x="600" y="172" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-size="44" font-weight="bold" letter-spacing="2" fill="#FEF3C7">${nameUpper}</text>
+
+      <!-- Origin & Meaning -->
+      <text x="600" y="235" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="600" letter-spacing="1.5" fill="#78716C">ORIGIN: ${safeOrigin.toUpperCase()}</text>
+      <text x="600" y="270" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-style="italic" fill="#1C1917">&ldquo;${safeMeaning}&rdquo;</text>
+
+      <!-- Acrostic Verse Block -->
+      <rect x="150" y="304" width="900" height="210" rx="12" fill="#FFFFFF" fill-opacity="0.75" stroke="#E7E5E4"/>
+      <text x="190" y="332" font-family="system-ui, sans-serif" font-size="11" font-weight="bold" letter-spacing="2" fill="#A8A29E">ACROSTIC VERSE</text>
+      ${acrosticSvgLines}
+
+      <!-- Bottom Branding -->
+      <text x="600" y="555" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="600" letter-spacing="1.5" fill="#A8A29E">DISCOVER YOUR NAME &bull; THEPAGEOFYOU.COM</text>
+    </svg>`;
+
+    return res.send(svg);
+  } catch (err) {
+    console.error('Failed generating OG image:', err);
+    res.status(500).type('text/plain').send('Error generating image');
   }
 });
 
@@ -869,16 +975,55 @@ async function prewarmCache() {
 }
 
 // Helper to generate SEO-rich HTML for individual name pages
-function renderNameHtml(templateHtml: string, rawName: string): string {
+async function renderNameHtml(templateHtml: string, rawName: string): Promise<string> {
   const cleanName = rawName.trim();
-  const fallback = findFallbackName(cleanName);
+  const lowerName = cleanName.toLowerCase();
+  const normalizedName = normalizeText(cleanName);
+
+  // 1. Try static curated dictionary first
+  let nameData: any = POPULAR_NAMES_DATA[lowerName] || POPULAR_NAMES_DATA[normalizedName];
+
+  // 2. Try in-memory lookup cache
+  if (!nameData) {
+    const cached = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
+    if (cached?.data) {
+      nameData = cached.data;
+    }
+  }
+
+  // 3. Try Firestore persistent cache if available
+  if (!nameData) {
+    const db = getFirestoreDb();
+    if (db) {
+      try {
+        const cacheDocRef = doc(db, 'name_cache', normalizedName);
+        const snap = await getDoc(cacheDocRef);
+        if (snap.exists()) {
+          const fsData = snap.data();
+          if (fsData?.data) {
+            nameData = fsData.data;
+            setInLookupCache(normalizedName, nameData);
+          }
+        }
+      } catch (e) {
+        console.warn('Firestore renderNameHtml lookup notice:', e);
+      }
+    }
+  }
+
+  // 4. Fallback to procedural fallback generator if still null
+  if (!nameData) {
+    nameData = findFallbackName(cleanName);
+  }
+
   const title = `${cleanName} — Name Meaning, Origin & Custom Acrostic Poem | The Page of You`;
   const description = `Discover the origin, cultural history, meaning, and bespoke acrostic poem for "${cleanName}". Create personalized poems, gifts, and explore verified quotes across literature, music, and film.`;
   const canonicalUrl = `https://thepageofyou.com/name/${encodeURIComponent(cleanName.toLowerCase())}`;
+  const ogImageUrl = `https://thepageofyou.com/api/og-image/${encodeURIComponent(cleanName.toLowerCase())}`;
   
   // Format Acrostic for Schema / Meta
-  const acrosticLines = fallback.acrostic || [];
-  const acrosticFormatted = acrosticLines.map(a => `${a.letter}: ${a.line}`).join('. ');
+  const acrosticLines = nameData.acrostic || [];
+  const acrosticFormatted = acrosticLines.map((a: any) => `${a.letter}: ${a.line}`).join('. ');
 
   const jsonLdSchema = {
     "@context": "https://schema.org",
@@ -905,7 +1050,7 @@ function renderNameHtml(templateHtml: string, rawName: string): string {
         "about": {
           "@type": "Thing",
           "name": cleanName,
-          "description": fallback.meaning || `Meaning and origin of the name ${cleanName}`
+          "description": nameData.meaning || `Meaning and origin of the name ${cleanName}`
         }
       },
       {
@@ -916,7 +1061,7 @@ function renderNameHtml(templateHtml: string, rawName: string): string {
             "name": `What is the origin and meaning of the name ${cleanName}?`,
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": `The name ${cleanName} originates from ${fallback.origin || 'historical culture'} and signifies "${fallback.meaning || 'noble and cherished'}".`
+              "text": `The name ${cleanName} originates from ${nameData.origin || 'historical culture'} and signifies "${nameData.meaning || 'noble and cherished'}".`
             }
           },
           {
@@ -950,16 +1095,47 @@ function renderNameHtml(templateHtml: string, rawName: string): string {
   html = html.replace(/<meta\s+property="og:title"\s+content=".*?"\s*\/?>/i, `<meta property="og:title" content="${title}" />`);
   html = html.replace(/<meta\s+property="og:description"\s+content=".*?"\s*\/?>/i, `<meta property="og:description" content="${description}" />`);
   html = html.replace(/<meta\s+property="og:url"\s+content=".*?"\s*\/?>/i, `<meta property="og:url" content="${canonicalUrl}" />`);
+  html = html.replace(/<meta\s+property="og:image"\s+content=".*?"\s*\/?>/i, `<meta property="og:image" content="${ogImageUrl}" />`);
+  html = html.replace(/<meta\s+property="og:image:type"\s+content=".*?"\s*\/?>/i, `<meta property="og:image:type" content="image/svg+xml" />`);
   
   // Replace Twitter Tags
   html = html.replace(/<meta\s+name="twitter:title"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:title" content="${title}" />`);
   html = html.replace(/<meta\s+name="twitter:description"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:description" content="${description}" />`);
+  html = html.replace(/<meta\s+name="twitter:image"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:image" content="${ogImageUrl}" />`);
+
+  // Semantic NOSCRIPT block for search engine crawlers without JavaScript
+  const acrosticHtmlList = acrosticLines
+    .map((a: any) => `<li style="margin-bottom:8px;font-size:16px;"><strong>${a.letter}</strong> &mdash; <em>${a.line}</em></li>`)
+    .join('');
+
+  const booksHtml = (nameData.books && nameData.books.length > 0)
+    ? `<section style="margin-top:20px;"><h3 style="font-size:18px;margin-bottom:6px;">Literature</h3><p>&ldquo;${nameData.books[0].quote}&rdquo; &mdash; <em>${nameData.books[0].title}</em> by ${nameData.books[0].author}</p></section>`
+    : '';
+
+  const songsHtml = (nameData.songs && nameData.songs.length > 0)
+    ? `<section style="margin-top:16px;"><h3 style="font-size:18px;margin-bottom:6px;">Music</h3><p>&ldquo;${nameData.songs[0].quote}&rdquo; &mdash; <em>${nameData.songs[0].title}</em> by ${nameData.songs[0].artist}</p></section>`
+    : '';
+
+  const crawlerNoscript = `
+    <noscript id="seo-crawler-content">
+      <main style="font-family:Georgia,serif;max-width:820px;margin:40px auto;padding:24px;color:#1c1917;background-color:#faf9f6;line-height:1.6;">
+        <h1 style="font-size:32px;font-weight:bold;margin-bottom:8px;">${cleanName} &mdash; Meaning, Origin &amp; Acrostic Poem</h1>
+        <p style="font-style:italic;font-size:18px;color:#57534e;margin-bottom:20px;">Origin: ${nameData.origin || 'Cultural Heritage'} &bull; Meaning: &ldquo;${nameData.meaning}&rdquo;</p>
+        <section style="margin-bottom:28px;">
+          <h2 style="font-size:20px;font-weight:bold;border-bottom:1px solid #e7e5e4;padding-bottom:6px;margin-bottom:12px;">Acrostic Poem for ${cleanName}</h2>
+          <ul style="list-style-type:none;padding-left:0;">${acrosticHtmlList}</ul>
+        </section>
+        ${booksHtml}
+        ${songsHtml}
+      </main>
+    </noscript>
+  `;
 
   // Inject Preloaded Server Data and JSON-LD schema
-  const serializedPreload = JSON.stringify(fallback).replace(/</g, '\\u003c');
+  const serializedPreload = JSON.stringify(nameData).replace(/</g, '\\u003c');
   const serializedSchema = JSON.stringify(jsonLdSchema).replace(/</g, '\\u003c');
 
-  const injection = `
+  const headInjection = `
     <!-- Programmatic SEO Schema & Preloaded Initial State -->
     <script type="application/ld+json">${serializedSchema}</script>
     <script>
@@ -968,7 +1144,8 @@ function renderNameHtml(templateHtml: string, rawName: string): string {
     </script>
   `;
 
-  html = html.replace('</head>', `${injection}\n</head>`);
+  html = html.replace('</head>', `${headInjection}\n</head>`);
+  html = html.replace('<div id="root"></div>', `<div id="root">${crawlerNoscript}</div>`);
   return html;
 }
 
@@ -992,7 +1169,7 @@ async function startServer() {
         rawHtml = await viteDevServer.transformIndexHtml(req.originalUrl, rawHtml);
       }
 
-      const renderedHtml = renderNameHtml(rawHtml, cleanName);
+      const renderedHtml = await renderNameHtml(rawHtml, cleanName);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800');
       return res.send(renderedHtml);

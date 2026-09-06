@@ -87,8 +87,16 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
     }
   };
 
-  const handleDownloadCard = () => {
+  const handleDownloadCard = async () => {
     setIsExporting(true);
+
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      try {
+        await document.fonts.ready;
+      } catch {
+        // Proceed if font loading promise fails
+      }
+    }
 
     const itemsToRender = [
       selectedBook ? {

@@ -48,8 +48,12 @@ export const AcrosticPoem: React.FC<AcrosticPoemProps> = ({
     art: [],
   };
 
-  const handleDownloadImage = () => {
-    downloadAcrosticImage(nameDataForExport);
+  const handleDownloadImage = async () => {
+    try {
+      await downloadAcrosticImage(nameDataForExport);
+    } catch (e) {
+      console.error('Download acrostic image error:', e);
+    }
   };
 
   return (

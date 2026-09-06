@@ -1,3 +1,7 @@
 User-agent: *
 Allow: /
+Disallow: /api/
+
+Sitemap: https://thepageofyou.com/sitemap.xml
+
 

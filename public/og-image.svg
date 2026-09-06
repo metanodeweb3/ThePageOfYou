@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FAF9F6"/>
+      <stop offset="50%" stop-color="#F5F3EF"/>
+      <stop offset="100%" stop-color="#EFECE6"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#B45309"/>
+      <stop offset="50%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1c1917" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <!-- Canvas Background -->
+  <rect width="1200" height="630" fill="url(#bgGrad)" />
+
+  <!-- Outer Double Framing Borders -->
+  <rect x="36" y="36" width="1128" height="558" rx="8" fill="none" stroke="#D97706" stroke-width="4" stroke-opacity="0.4" />
+  <rect x="48" y="48" width="1104" height="534" rx="6" fill="none" stroke="#78716C" stroke-width="1.5" stroke-opacity="0.35" />
+  <rect x="54" y="54" width="1092" height="522" fill="none" stroke="#D97706" stroke-width="0.75" stroke-opacity="0.3" stroke-dasharray="8 6" />
+
+  <!-- Corner Flourish Circles -->
+  <circle cx="48" cy="48" r="5" fill="#D97706" />
+  <circle cx="1152" cy="48" r="5" fill="#D97706" />
+  <circle cx="48" cy="582" r="5" fill="#D97706" />
+  <circle cx="1152" cy="582" r="5" fill="#D97706" />
+
+  <!-- Inner Parchment Certificate Container -->
+  <rect x="90" y="80" width="1020" height="470" rx="16" fill="#FFFFFF" fill-opacity="0.7" stroke="#E7E5E4" stroke-width="1" filter="url(#cardShadow)" />
+
+  <!-- Top Eyebrow Tag -->
+  <text x="600" y="132" text-anchor="middle" font-family="Georgia, serif" font-size="14" font-weight="700" letter-spacing="4" fill="#B45309">
+    ✦ THE LITERARY ARCHIVE &amp; KEEPSAKE STUDIO ✦
+  </text>
+
+  <!-- Brand Title -->
+  <text x="600" y="210" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-size="58" font-weight="800" fill="#1C1917">
+    The Page of You
+  </text>
+
+  <!-- Golden Accent Ribbon / Line -->
+  <line x1="420" y1="236" x2="780" y2="236" stroke="url(#goldGrad)" stroke-width="3" stroke-linecap="round" />
+  <polygon points="600,230 606,236 600,242 594,236" fill="#D97706" />
+
+  <!-- Primary Subtitle -->
+  <text x="600" y="285" text-anchor="middle" font-family="Georgia, serif" font-size="24" font-style="italic" fill="#44403C">
+    Personalised Name Meanings, Origins &amp; Bespoke Acrostic Verse
+  </text>
+
+  <!-- Description Body -->
+  <text x="600" y="340" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#78716C">
+    Discover your name across timeless Literature, Song Lyrics, Cinema, Video Games &amp; Fine Art
+  </text>
+
+  <!-- 5 Badge Pillars -->
+  <g transform="translate(180, 390)">
+    <!-- Literature -->
+    <rect x="0" y="0" width="150" height="42" rx="8" fill="#F5F5F4" stroke="#E7E5E4" />
+    <text x="75" y="26" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#44403C">📚 Literature</text>
+
+    <!-- Music -->
+    <rect x="170" y="0" width="150" height="42" rx="8" fill="#F5F5F4" stroke="#E7E5E4" />
+    <text x="245" y="26" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#44403C">🎵 Song Lyrics</text>
+
+    <!-- Cinema -->
+    <rect x="340" y="0" width="150" height="42" rx="8" fill="#F5F5F4" stroke="#E7E5E4" />
+    <text x="415" y="26" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#44403C">🎬 Cinema</text>
+
+    <!-- Gaming -->
+    <rect x="510" y="0" width="150" height="42" rx="8" fill="#F5F5F4" stroke="#E7E5E4" />
+    <text x="585" y="26" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#44403C">🎮 Video Games</text>
+
+    <!-- Art -->
+    <rect x="680" y="0" width="150" height="42" rx="8" fill="#F5F5F4" stroke="#E7E5E4" />
+    <text x="755" y="26" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#44403C">🎨 Fine Art</text>
+  </g>
+
+  <!-- Bottom Site Branding -->
+  <text x="600" y="515" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="600" letter-spacing="1.5" fill="#A8A29E">
+    THEPAGEOFYOU.COM • FREE INSTANT GENERATOR &amp; DOWNLOADABLE KEEPSAKES
+  </text>
+</svg>

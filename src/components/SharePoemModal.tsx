@@ -9,9 +9,17 @@ interface SharePoemModalProps {
   onClose: () => void;
 }
 
-export const downloadAcrosticImage = (data: PersonNameData, theme?: AcrosticTheme) => {
+export const downloadAcrosticImage = async (data: PersonNameData, theme?: AcrosticTheme) => {
   const currentTheme = theme || ACROSTIC_THEMES[0];
   const acrosticLines = data.acrostic || [];
+
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // Proceed if font loading promise fails
+    }
+  }
 
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
@@ -284,12 +292,15 @@ export const SharePoemModal: React.FC<SharePoemModalProps> = ({
     }
   };
 
-  const handleDownloadCard = () => {
+  const handleDownloadCard = async () => {
     setIsExporting(true);
-    setTimeout(() => {
-      downloadAcrosticImage(data, currentTheme);
+    try {
+      await downloadAcrosticImage(data, currentTheme);
+    } catch (err) {
+      console.error('Error downloading poem card:', err);
+    } finally {
       setIsExporting(false);
-    }, 50);
+    }
   };
 
   return (

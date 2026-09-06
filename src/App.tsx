@@ -29,6 +29,7 @@ export function App() {
   const [nameData, setNameData] = useState<PersonNameData>(initialPreloadedData || POPULAR_NAMES_DATA.jude);
   const [isLoading, setIsLoading] = useState(false);
   const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichingCategory, setEnrichingCategory] = useState<'books' | 'songs' | 'movies' | 'games' | 'art' | 'all' | null>(null);
   const [isCoffeeOpen, setIsCoffeeOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
@@ -251,8 +252,9 @@ export function App() {
   };
 
   const handleEnrichCategory = async (category: 'books' | 'songs' | 'movies' | 'games' | 'art' | 'all') => {
-    if (isEnriching || !nameData.name) return;
+    if (isEnriching || enrichingCategory || !nameData.name) return;
     setIsEnriching(true);
+    setEnrichingCategory(category);
 
     try {
       // Collect existing titles to avoid duplicates
@@ -338,6 +340,7 @@ export function App() {
       console.warn('Enrichment request error:', err);
     } finally {
       setIsEnriching(false);
+      setEnrichingCategory(null);
     }
   };
 
@@ -375,6 +378,7 @@ export function App() {
           art={nameData.art}
           onEnrichCategory={handleEnrichCategory}
           isEnriching={isEnriching}
+          enrichingCategory={enrichingCategory}
         />
 
         {/* Acrostic Poem Generator */}

@@ -153,10 +153,11 @@ export const NameSearch: React.FC<NameSearchProps> = ({
             </div>
             <button
               type="button"
+              id="btn-jump-to-results"
               onClick={handleExploreClick}
-              className="px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-amber-200 font-semibold text-xs flex items-center gap-1 transition-all active:scale-95 shrink-0"
+              className="px-3.5 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-amber-200 font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 cursor-pointer shadow-xs hover:shadow"
             >
-              <span>Explore Results</span>
+              <span>Jump to Results</span>
               <ArrowDown className="w-3.5 h-3.5 animate-bounce" />
             </button>
           </div>
