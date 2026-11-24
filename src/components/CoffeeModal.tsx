@@ -22,14 +22,12 @@ export const CoffeeModal: React.FC<CoffeeModalProps> = ({ isOpen, onClose }) => 
 
   if (!isOpen) return null;
 
-  const handleSupport = () => {
-    // Open Buy Me a Coffee page in new tab
-    window.open('https://buymeacoffee.com/thepageofyou', '_blank', 'noopener,noreferrer');
+  const handleSupportClick = () => {
     setThanked(true);
     setTimeout(() => {
       setThanked(false);
       onClose();
-    }, 3500);
+    }, 3000);
   };
 
   return (
@@ -53,9 +51,10 @@ export const CoffeeModal: React.FC<CoffeeModalProps> = ({ isOpen, onClose }) => 
           </div>
           <button
             id="btn-close-coffee"
+            type="button"
             onClick={onClose}
             aria-label="Close modal"
-            className="w-8 h-8 rounded-full bg-stone-200/80 hover:bg-stone-300 flex items-center justify-center text-stone-600 transition-colors"
+            className="w-8 h-8 rounded-full bg-stone-200/80 hover:bg-stone-300 flex items-center justify-center text-stone-600 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -63,8 +62,8 @@ export const CoffeeModal: React.FC<CoffeeModalProps> = ({ isOpen, onClose }) => 
 
         <div className="p-5 sm:p-6 text-center space-y-5 overflow-y-auto flex-1">
           <p className="text-sm text-stone-600 leading-relaxed">
-            "The Page of You" is a passion project curating literary quotes, songs, and film lines without intrusive ads.
-            If you enjoyed finding your name's cultural footprint, consider buying the creator a coffee!
+            &ldquo;The Page of You&rdquo; is a passion project curating literary quotes, songs, and film lines without intrusive ads.
+            If you enjoyed finding your name&rsquo;s cultural footprint, consider buying the creator a coffee!
           </p>
 
           {/* Tip Amount Selector */}
@@ -73,22 +72,25 @@ export const CoffeeModal: React.FC<CoffeeModalProps> = ({ isOpen, onClose }) => 
               <button
                 key={amount}
                 id={`btn-tip-${amount}`}
+                type="button"
                 onClick={() => setSelectedTip(amount)}
-                className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all ${
+                className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all cursor-pointer ${
                   selectedTip === amount
                     ? 'bg-amber-100 border-amber-400 text-amber-950 shadow-xs scale-105'
                     : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-stone-100'
                 }`}
               >
-                ☕ ${amount}
+                ☕ £{amount}
               </button>
             ))}
           </div>
 
-          <button
+          <a
             id="btn-coffee-submit"
-            onClick={handleSupport}
-            disabled={thanked}
+            href="https://buymeacoffee.com/thepageofyou"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={handleSupportClick}
             className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
           >
             {thanked ? (
@@ -99,11 +101,11 @@ export const CoffeeModal: React.FC<CoffeeModalProps> = ({ isOpen, onClose }) => 
             ) : (
               <>
                 <Heart className="w-4 h-4 text-rose-700 fill-rose-700" />
-                <span>Support with ${selectedTip} Coffee</span>
+                <span>Support with £{selectedTip} Coffee</span>
                 <ExternalLink className="w-3.5 h-3.5 text-stone-800 ml-1" />
               </>
             )}
-          </button>
+          </a>
 
           <div className="pt-1">
             <a

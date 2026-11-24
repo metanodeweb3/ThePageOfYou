@@ -3,64 +3,111 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    
-    <!-- Fonts preconnect and CSS -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Mea+Culpa&family=Pinyon+Script&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=block" rel="stylesheet">
-    
-    <!-- Primary SEO Meta Tags -->
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-J6Z2KSYKN5"></script>
+
+    <!-- Fonts preconnect and non-blocking display=swap stylesheet -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Mea+Culpa&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Google Consent Mode v2 (UK GDPR compliant — defaults to denied until consent) -->
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
+      (function () {
+        var savedConsent = null;
+        try { savedConsent = localStorage.getItem('privacy_consent'); } catch (e) {}
+        var analyticsGranted = savedConsent === 'accepted' ? 'granted' : 'denied';
+        gtag('consent', 'default', {
+          ad_storage: 'denied',
+          ad_user_data: 'denied',
+          ad_personalization: 'denied',
+          analytics_storage: analyticsGranted
+        });
+        if (savedConsent === 'essential') {
+          window['ga-disable-G-J6Z2KSYKN5'] = true;
+        }
+      })();
       gtag('js', new Date());
-
-      gtag('config', 'G-J6Z2KSYKN5');
+      gtag('config', 'G-J6Z2KSYKN5', { anonymize_ip: true });
     </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-J6Z2KSYKN5"></script>
 
-    <title>The Page of You — Personalised Name Origins & Custom Acrostic Poetry</title>
-    <meta name="title" content="The Page of You — Personalised Name Origins & Custom Acrostic Poetry" />
-    <meta name="description" content="Discover baby name meanings, personalised name origins, bespoke acrostic poetry gifts, and cultural references across literature, song lyrics, movies, video games, and fine art." />
-    <meta name="keywords" content="baby name meaning archive, personalised name origins, custom acrostic poem generator, personalized poetry gifts, name history keepsake, song lyrics with my name, book quotes with my name, unique baby names" />
+    <!-- Primary SEO Meta Tags -->
+    <title>The Page of You — Name Etymology, Meaning &amp; Acrostic Poems</title>
+    <meta
+      name="description"
+      content="Discover the etymology, meaning, and cultural history behind any name. Explore verified song lyrics, book quotes, film lines, and custom acrostic poems."
+    />
     <meta name="robots" content="index, follow" />
     <meta name="author" content="The Page of You" />
-    <link rel="canonical" href="https://thepageofyou.com" />
+    <link rel="canonical" href="https://thepageofyou.com/" />
     <meta name="theme-color" content="#FAF9F6" />
 
-    <!-- Open Graph / Facebook / WhatsApp -->
+    <!-- Open Graph / Facebook / WhatsApp / LinkedIn -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://thepageofyou.com" />
-    <meta property="og:title" content="The Page of You — Personalised Name Origins & Custom Acrostic Poetry" />
-    <meta property="og:description" content="Discover baby name meanings, personalised name origins, bespoke acrostic poetry gifts, and cultural references across literature, song lyrics, movies, video games, and fine art." />
+    <meta property="og:locale" content="en_GB" />
+    <meta property="og:url" content="https://thepageofyou.com/" />
+    <meta property="og:title" content="The Page of You — Name Etymology, Meaning &amp; Acrostic Poems" />
+    <meta
+      property="og:description"
+      content="Discover the etymology, meaning, and cultural history behind any name. Explore verified song lyrics, book quotes, film lines, and custom acrostic poems."
+    />
     <meta property="og:site_name" content="The Page of You" />
-    <meta property="og:image" content="https://thepageofyou.com/og-image.svg" />
+    <meta property="og:image" content="https://thepageofyou.com/og/default.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:type" content="image/svg+xml" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:alt" content="The Page of You — Name Etymology, Meaning, Acrostic Poems &amp; Cultural Archive" />
 
-    <!-- Twitter -->
+    <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="The Page of You — Personalised Name Origins & Custom Acrostic Poetry" />
-    <meta name="twitter:description" content="Discover baby name meanings, personalised name origins, bespoke acrostic poetry gifts, and cultural references across literature, music, and cinema." />
-    <meta name="twitter:image" content="https://thepageofyou.com/og-image.svg" />
+    <meta name="twitter:title" content="The Page of You — Name Etymology, Meaning &amp; Acrostic Poems" />
+    <meta
+      name="twitter:description"
+      content="Discover the etymology, meaning, and cultural history behind any name. Explore verified song lyrics, book quotes, film lines, and custom acrostic poems."
+    />
+    <meta name="twitter:image" content="https://thepageofyou.com/og/default.png" />
+    <meta name="twitter:image:alt" content="The Page of You — Name Etymology, Meaning, Acrostic Poems &amp; Cultural Archive" />
 
-    <!-- Schema.org JSON-LD Structured Data -->
-    <script type="application/ld+json">
+    <!-- Schema.org JSON-LD Structured Data (replaced dynamically per route by SSR) -->
+    <script type="application/ld+json" id="seo-json-ld">
     {
       "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "The Page of You",
-      "url": "https://thepageofyou.com",
-      "description": "Personalised name origins, custom acrostic poetry generator, and cultural archive finding quotes in books, song lyrics, movie dialogue, video games, and fine art.",
-      "applicationCategory": "Cultural & Educational",
-      "operatingSystem": "All",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      }
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "name": "The Page of You",
+          "url": "https://thepageofyou.com/",
+          "description": "Personalised name etymology, meanings, custom acrostic poems, and cultural archive across literature, music, film, video games, and fine art.",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://thepageofyou.com/name/{search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": "Organization",
+          "name": "The Page of You",
+          "url": "https://thepageofyou.com/",
+          "logo": "https://thepageofyou.com/og/default.png"
+        },
+        {
+          "@type": "WebApplication",
+          "name": "The Page of You",
+          "url": "https://thepageofyou.com/",
+          "description": "Discover name etymology, origins, custom acrostic poetry, and verified references in books, song lyrics, movies, video games, and fine art.",
+          "applicationCategory": "ReferenceApplication",
+          "operatingSystem": "All",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "GBP"
+          }
+        }
+      ]
     }
     </script>
 
@@ -71,4 +118,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

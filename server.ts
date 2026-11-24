@@ -9,15 +9,44 @@ import { getFirestore, doc, getDoc, setDoc, increment } from 'firebase/firestore
 import dotenv from 'dotenv';
 import { findFallbackName, POPULAR_NAMES_DATA } from './src/data/fallbackData';
 import { normalizeText } from './src/utils/searchEngine';
+import {
+  SITE_URL,
+  formatDisplayName,
+  getCuratedDirectoryNames,
+  getNameSlug,
+  isIndexableName,
+  isValidNameInput,
+  safeDecodeURIComponent,
+} from './src/utils/seo';
+import { renderOgImagePng } from './src/server/ogImage';
+import {
+  renderAcrosticHubHtml,
+  renderDirectoryHtml,
+  renderHomeHtml,
+  renderNameHtml,
+  renderSongsHubHtml,
+} from './src/server/ssrRenderer';
 
 dotenv.config();
 
 const app = express();
+app.disable('x-powered-by');
 app.set('trust proxy', true);
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(compression());
-app.use(express.json());
+app.use(express.json({ limit: '64kb' }));
+
+// Standard HTTP security headers (iframe-safe for AI Studio preview)
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (process.env.NODE_ENV === 'production' && (req.secure || req.headers['x-forwarded-proto'] === 'https')) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 
 // Initialize Firestore Server Instance lazily
 let firestoreDb: any = null;
@@ -37,7 +66,7 @@ function getFirestoreDb() {
   return null;
 }
 
-// Initialize Gemini AI Client lazily or safely
+// Initialize Gemini AI Client lazily and safely
 function getGeminiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
@@ -53,7 +82,7 @@ function getGeminiClient() {
   });
 }
 
-// In-Memory Cache for Gemini Lookup Results (stores up to 24 hours, max 2000 items)
+// In-Memory Cache for Lookup Results (24h TTL, max 2000 items)
 const lookupCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 2000;
@@ -67,18 +96,112 @@ function setInLookupCache(key: string, data: any) {
   lookupCache.set(key, { data, timestamp: Date.now() });
 }
 
-// In-Memory Rate Limiter per Client IP (max 10 requests per minute)
-const ipRequestCounts = new Map<string, { count: number; resetTime: number }>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-const MAX_REQUESTS_PER_WINDOW = 10;
+// Per-IP Rate Limiters (minute + hourly buckets) and In-Flight Deduplication Maps
+const ipLookupMinuteCounts = new Map<string, { count: number; resetTime: number }>();
+const ipLookupHourCounts = new Map<string, { count: number; resetTime: number }>();
+const ipEnrichMinuteCounts = new Map<string, { count: number; resetTime: number }>();
+const inFlightLookups = new Map<string, Promise<any>>();
+const inFlightEnrichments = new Map<string, Promise<any>>();
 
-// Periodic cleanup of stale rate limiter IP records and expired cache entries every 5 minutes to prevent memory leaks
+const MINUTE_WINDOW_MS = 60 * 1000;
+const HOUR_WINDOW_MS = 60 * 60 * 1000;
+const MAX_LOOKUP_PER_MINUTE = 6;
+const MAX_LOOKUP_PER_HOUR = 20;
+const MAX_ENRICH_PER_MINUTE = 4;
+
+const BOT_UA_PATTERN =
+  /bot|crawler|spider|slurp|mediapartners|facebookexternalhit|whatsapp|telegrambot|twitterbot|linkedinbot|discordbot|pinterest|bytespider|gptbot|claudebot|anthropic|ccbot|ahrefs|semrush|mj12bot|dotbot|petalbot|yandex|baiduspider|headlesschrome|puppeteer|playwright|scrapy|python-requests|go-http-client|wget/i;
+
+function isAutomatedBot(req: express.Request): boolean {
+  const ua = String(req.headers['user-agent'] || '').trim();
+  if (!ua) return true;
+  return BOT_UA_PATTERN.test(ua);
+}
+
+function isAllowedApiOrigin(req: express.Request): boolean {
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return true; // Same-origin or non-CORS requests without Origin header
+  try {
+    const parsed = new URL(origin);
+    const reqHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase();
+    if (reqHost && parsed.host.toLowerCase() === reqHost) return true;
+    if (
+      parsed.hostname === 'thepageofyou.com' ||
+      parsed.hostname.endsWith('.thepageofyou.com') ||
+      parsed.hostname.endsWith('.run.app') ||
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1'
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function getClientIp(req: express.Request): string {
+  return (
+    ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown')
+      .split(',')[0]
+      .trim()
+  );
+}
+
+function checkRateLimit(
+  bucket: Map<string, { count: number; resetTime: number }>,
+  ip: string,
+  maxRequests: number,
+  windowMs: number
+): boolean {
+  const now = Date.now();
+  const entry = bucket.get(ip);
+  if (!entry || now > entry.resetTime) {
+    bucket.set(ip, { count: 1, resetTime: now + windowMs });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= maxRequests;
+}
+
+// Global Daily Gemini API Budget Circuit Breaker (prevents runaway costs from bots/traffic spikes)
+const MAX_DAILY_GEMINI_CALLS = Math.max(
+  10,
+  parseInt(process.env.MAX_DAILY_GEMINI_CALLS || '200', 10) || 200
+);
+let dailyGeminiUsage = {
+  dateUtc: new Date().toISOString().slice(0, 10),
+  count: 0,
+};
+
+function canSpendGeminiCall(): boolean {
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  if (dailyGeminiUsage.dateUtc !== todayUtc) {
+    dailyGeminiUsage = { dateUtc: todayUtc, count: 0 };
+  }
+  return dailyGeminiUsage.count < MAX_DAILY_GEMINI_CALLS;
+}
+
+function recordGeminiCall() {
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  if (dailyGeminiUsage.dateUtc !== todayUtc) {
+    dailyGeminiUsage = { dateUtc: todayUtc, count: 1 };
+  } else {
+    dailyGeminiUsage.count += 1;
+  }
+}
+
+// Periodic cleanup of stale rate limiter IP records and expired cache entries every 5 minutes
 setInterval(() => {
   const currentTime = Date.now();
-  for (const [ip, data] of ipRequestCounts.entries()) {
-    if (currentTime > data.resetTime) {
-      ipRequestCounts.delete(ip);
-    }
+  for (const [ip, data] of ipLookupMinuteCounts.entries()) {
+    if (currentTime > data.resetTime) ipLookupMinuteCounts.delete(ip);
+  }
+  for (const [ip, data] of ipLookupHourCounts.entries()) {
+    if (currentTime > data.resetTime) ipLookupHourCounts.delete(ip);
+  }
+  for (const [ip, data] of ipEnrichMinuteCounts.entries()) {
+    if (currentTime > data.resetTime) ipEnrichMinuteCounts.delete(ip);
   }
   for (const [key, entry] of lookupCache.entries()) {
     if (currentTime - entry.timestamp > CACHE_TTL_MS) {
@@ -87,172 +210,7 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-// Direct route for robots.txt
-app.get('/robots.txt', (req, res) => {
-  res.type('text/plain');
-  res.send('User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: https://thepageofyou.com/sitemap.xml\n');
-});
-
-// Dynamic XML Sitemap for all curated and cached popular names
-app.get('/sitemap.xml', async (req, res) => {
-  try {
-    const baseUrl = 'https://thepageofyou.com';
-    const namesSet = new Set<string>();
-
-    // 1. Add all curated static names from memory
-    for (const key of Object.keys(POPULAR_NAMES_DATA)) {
-      if (key && key.trim()) {
-        namesSet.add(key.trim().toLowerCase());
-      }
-    }
-
-    // 2. Add cached names from in-memory lookupCache
-    for (const key of lookupCache.keys()) {
-      if (key && key.trim() && key.length > 1 && !key.includes(' ') && !key.includes('%')) {
-        namesSet.add(key.trim().toLowerCase());
-      }
-    }
-
-    // 3. Try to add recently cached names from Firestore if available
-    const db = getFirestoreDb();
-    if (db) {
-      try {
-        const { collection, getDocs, limit, query } = await import('firebase/firestore');
-        const popQ = query(collection(db, 'popular_names'), limit(250));
-        const popSnap = await getDocs(popQ);
-        popSnap.forEach((d: any) => {
-          if (d.id && d.id.trim()) {
-            namesSet.add(d.id.trim().toLowerCase());
-          }
-        });
-      } catch (fsErr) {
-        console.warn('Sitemap Firestore query notice:', fsErr);
-      }
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
-
-    // Homepage
-    xml += `  <url>\n`;
-    xml += `    <loc>${baseUrl}</loc>\n`;
-    xml += `    <lastmod>${today}</lastmod>\n`;
-    xml += `    <changefreq>daily</changefreq>\n`;
-    xml += `    <priority>1.0</priority>\n`;
-    xml += `  </url>\n`;
-
-    // Name specific landing pages
-    for (const nameKey of Array.from(namesSet).sort()) {
-      const encodedSlug = encodeURIComponent(nameKey);
-      xml += `  <url>\n`;
-      xml += `    <loc>${baseUrl}/name/${encodedSlug}</loc>\n`;
-      xml += `    <lastmod>${today}</lastmod>\n`;
-      xml += `    <changefreq>weekly</changefreq>\n`;
-      xml += `    <priority>0.8</priority>\n`;
-      xml += `  </url>\n`;
-    }
-
-    xml += `</urlset>`;
-
-    res.setHeader('Content-Type', 'application/xml');
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-    res.send(xml);
-  } catch (err) {
-    console.error('Failed generating sitemap.xml:', err);
-    res.status(500).type('text/plain').send('Error generating sitemap');
-  }
-});
-
-// Dynamic Social Preview (OG Card) SVG Generator
-app.get(['/api/og-image', '/api/og-image/:nameSlug'], async (req, res) => {
-  try {
-    const rawSlug = req.params.nameSlug;
-    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800');
-
-    // If no specific name requested, serve base brand card
-    if (!rawSlug || rawSlug.trim() === '') {
-      const defaultSvgPath = path.join(process.cwd(), 'public', 'og-image.svg');
-      if (fs.existsSync(defaultSvgPath)) {
-        return res.send(fs.readFileSync(defaultSvgPath, 'utf-8'));
-      }
-    }
-
-    const cleanName = decodeURIComponent(rawSlug || '').trim();
-    const lowerName = cleanName.toLowerCase();
-    const normalizedName = normalizeText(cleanName);
-
-    let nameData: any = POPULAR_NAMES_DATA[lowerName] || POPULAR_NAMES_DATA[normalizedName];
-    if (!nameData) {
-      const cached = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
-      if (cached?.data) nameData = cached.data;
-    }
-    if (!nameData) {
-      nameData = findFallbackName(cleanName);
-    }
-
-    const nameUpper = cleanName ? cleanName.toUpperCase() : 'THE PAGE OF YOU';
-    const meaning = (nameData?.meaning || 'Discover your name origin and bespoke acrostic poetry.').slice(0, 85);
-    const origin = (nameData?.origin || 'Cultural Heritage').slice(0, 40);
-    const acrostic = (nameData?.acrostic || []).slice(0, 4);
-
-    const safeMeaning = meaning.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const safeOrigin = origin.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-    const acrosticSvgLines = acrostic.map((a: any, idx: number) => {
-      const y = 350 + (idx * 38);
-      const safeLine = (a.line || '').slice(0, 55).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      return `
-        <g transform="translate(190, ${y})">
-          <rect x="0" y="-18" width="28" height="28" rx="6" fill="#F59E0B" fill-opacity="0.18" stroke="#D97706" stroke-width="1" />
-          <text x="14" y="2" text-anchor="middle" font-family="Georgia, serif" font-weight="bold" font-size="15" fill="#B45309">${a.letter}</text>
-          <text x="40" y="2" font-family="Georgia, serif" font-style="italic" font-size="16" fill="#292524">${safeLine}</text>
-        </g>
-      `;
-    }).join('');
-
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
-      <defs>
-        <linearGradient id="bgG" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#FAF9F6"/>
-          <stop offset="50%" stop-color="#F5F3EE"/>
-          <stop offset="100%" stop-color="#EFECE6"/>
-        </linearGradient>
-      </defs>
-      <rect width="1200" height="630" fill="url(#bgG)"/>
-      <rect x="36" y="36" width="1128" height="558" rx="8" fill="none" stroke="#D97706" stroke-width="3.5" stroke-opacity="0.45"/>
-      <rect x="46" y="46" width="1108" height="538" rx="6" fill="none" stroke="#78716C" stroke-width="1.2" stroke-opacity="0.3"/>
-      
-      <!-- Eyebrow -->
-      <text x="600" y="90" text-anchor="middle" font-family="Georgia, serif" font-size="13" font-weight="bold" letter-spacing="4" fill="#B45309">✦ THE PAGE OF YOU &bull; PERSONAL KEEPSAKE ✦</text>
-
-      <!-- Name Banner -->
-      <rect x="250" y="116" width="700" height="84" rx="12" fill="#1C1917"/>
-      <rect x="254" y="120" width="692" height="76" rx="9" fill="none" stroke="#D97706" stroke-width="1.5"/>
-      <text x="600" y="172" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-size="44" font-weight="bold" letter-spacing="2" fill="#FEF3C7">${nameUpper}</text>
-
-      <!-- Origin & Meaning -->
-      <text x="600" y="235" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="600" letter-spacing="1.5" fill="#78716C">ORIGIN: ${safeOrigin.toUpperCase()}</text>
-      <text x="600" y="270" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-style="italic" fill="#1C1917">&ldquo;${safeMeaning}&rdquo;</text>
-
-      <!-- Acrostic Verse Block -->
-      <rect x="150" y="304" width="900" height="210" rx="12" fill="#FFFFFF" fill-opacity="0.75" stroke="#E7E5E4"/>
-      <text x="190" y="332" font-family="system-ui, sans-serif" font-size="11" font-weight="bold" letter-spacing="2" fill="#A8A29E">ACROSTIC VERSE</text>
-      ${acrosticSvgLines}
-
-      <!-- Bottom Branding -->
-      <text x="600" y="555" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="600" letter-spacing="1.5" fill="#A8A29E">DISCOVER YOUR NAME &bull; THEPAGEOFYOU.COM</text>
-    </svg>`;
-
-    return res.send(svg);
-  } catch (err) {
-    console.error('Failed generating OG image:', err);
-    res.status(500).type('text/plain').send('Error generating image');
-  }
-});
-
-// Helper to validate cultural relevance and prevent AI hallucinations (e.g. Kaspar Hauser for Pascal)
+// Validate cultural relevance and prevent AI hallucinations
 function isValidCulturalItem(item: any, searchName: string): boolean {
   if (!item || typeof item !== 'object') return false;
 
@@ -269,415 +227,704 @@ function isValidCulturalItem(item: any, searchName: string): boolean {
     return false;
   }
 
-  // Extract meaningful alphanumeric name tokens (length >= 3)
-  const clean = searchName.toLowerCase().trim();
-  const tokens = clean.split(/[^a-z0-9]+/).filter(t => t.length >= 3);
+  const clean = normalizeText(searchName);
+  const tokens = clean.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
   if (tokens.length === 0) {
     return text.includes(clean);
   }
 
-  // The item must connect to at least one primary token of the search name
-  return tokens.some(token => text.includes(token));
+  return tokens.some((token) => text.includes(token));
 }
 
-// Verify that cached entries are complete (at least 2 items per category) and free of hallucinations
+/**
+ * Validates cached entries without forcing unnecessary Gemini re-calls.
+ * Previously requiring >=2 entries in ALL 5 categories caused perpetual cache misses
+ * and repeat API billing whenever a real name had fewer entries in games or fine art.
+ */
 function isCachedDataValid(data: any, searchName: string): boolean {
   if (!data || typeof data !== 'object') return false;
-  const categories = ['books', 'songs', 'movies', 'games', 'art'];
-  
-  const hasMinimumItems = categories.every(
-    cat => Array.isArray(data[cat]) && data[cat].length >= 2
-  );
-  if (!hasMinimumItems) return false;
+  if (!data.meaning || typeof data.meaning !== 'string') return false;
+  if (!Array.isArray(data.acrostic) || data.acrostic.length === 0) return false;
 
-  const hasNoHallucinations = categories.every(
-    cat => Array.isArray(data[cat]) && data[cat].every((it: any) => isValidCulturalItem(it, searchName))
-  );
-  return hasNoHallucinations;
+  const categories = ['books', 'songs', 'movies', 'games', 'art'] as const;
+  let totalValidItems = 0;
+
+  for (const cat of categories) {
+    if (!Array.isArray(data[cat])) continue;
+    for (const item of data[cat]) {
+      if (!isValidCulturalItem(item, searchName)) {
+        return false;
+      }
+      totalValidItems += 1;
+    }
+  }
+
+  return totalValidItems >= 3;
 }
+
+/**
+ * Resolves a name strictly from zero-cost sources (curated dataset -> in-memory cache -> Firestore cache).
+ * NEVER calls Gemini, ensuring bots/crawlers on SSR or OG routes cost $0.
+ */
+async function resolveCachedOrCuratedName(rawName: string): Promise<{
+  data: any;
+  isResolved: boolean;
+  source: 'curated' | 'cache' | 'firestore_cache' | 'fallback';
+}> {
+  const cleanName = rawName.trim();
+  const lowerName = cleanName.toLowerCase();
+  const normalizedName = normalizeText(cleanName);
+
+  // 1. Static curated dataset (0ms, $0)
+  const curated = POPULAR_NAMES_DATA[lowerName] || POPULAR_NAMES_DATA[normalizedName];
+  if (curated) {
+    return { data: curated, isResolved: true, source: 'curated' };
+  }
+
+  // 2. In-memory lookup cache (0ms, $0)
+  const now = Date.now();
+  const cachedEntry = lookupCache.get(normalizedName) || lookupCache.get(lowerName);
+  if (cachedEntry && now - cachedEntry.timestamp < CACHE_TTL_MS) {
+    if (isCachedDataValid(cachedEntry.data, cleanName)) {
+      return { data: cachedEntry.data, isResolved: true, source: 'cache' };
+    }
+  }
+
+  // 3. Firestore persistent cache using canonical normalizedName key
+  const db = getFirestoreDb();
+  if (db && normalizedName) {
+    try {
+      const cacheDocRef = doc(db, 'name_cache', normalizedName);
+      const docSnap = await getDoc(cacheDocRef);
+      if (docSnap.exists()) {
+        const fsData = docSnap.data();
+        const isFreshSchema = (fsData?.schemaVersion || 0) >= 3;
+        if (fsData?.data && isFreshSchema && isCachedDataValid(fsData.data, cleanName)) {
+          setInLookupCache(normalizedName, fsData.data);
+          if (lowerName !== normalizedName) setInLookupCache(lowerName, fsData.data);
+          return { data: fsData.data, isResolved: true, source: 'firestore_cache' };
+        }
+      }
+    } catch (err) {
+      console.warn('Firestore resolveCachedOrCuratedName notice:', err);
+    }
+  }
+
+  // 4. Procedural fallback (marked isResolved = false so SSR sets noindex & does not lock client)
+  return {
+    data: findFallbackName(cleanName),
+    isResolved: false,
+    source: 'fallback',
+  };
+}
+
+/**
+ * Collects verified indexable names for sitemap.xml and /names directory.
+ */
+async function collectIndexableNames(): Promise<string[]> {
+  const namesMap = new Map<string, string>();
+
+  // 1. Curated given names (automatically excludes non-names like tomato/batman)
+  for (const entry of getCuratedDirectoryNames()) {
+    namesMap.set(normalizeText(entry.name), entry.name);
+  }
+
+  // 2. Validated cached names in server memory
+  for (const [key, entry] of lookupCache.entries()) {
+    const candidate = entry?.data?.name || key;
+    if (isIndexableName(candidate)) {
+      const norm = normalizeText(candidate);
+      if (!namesMap.has(norm)) {
+        namesMap.set(norm, formatDisplayName(candidate));
+      }
+    }
+  }
+
+  // 3. Validated cached names from Firestore popular_names
+  const db = getFirestoreDb();
+  if (db) {
+    try {
+      const { collection, getDocs, limit, query } = await import('firebase/firestore');
+      const popQ = query(collection(db, 'popular_names'), limit(250));
+      const popSnap = await getDocs(popQ);
+      popSnap.forEach((d: any) => {
+        const candidate = d.data()?.name || d.id;
+        if (candidate && isIndexableName(candidate)) {
+          const norm = normalizeText(candidate);
+          if (!namesMap.has(norm)) {
+            namesMap.set(norm, formatDisplayName(candidate));
+          }
+        }
+      });
+    } catch (fsErr) {
+      console.warn('Directory/Sitemap Firestore query notice:', fsErr);
+    }
+  }
+
+  return Array.from(namesMap.values()).sort((a, b) => a.localeCompare(b));
+}
+
+// Direct route for robots.txt (explicitly allows /og/ PNG cards, disallows /api/)
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain');
+  res.send(
+    `User-agent: *\nAllow: /\nAllow: /og/\nDisallow: /api/\n\nSitemap: ${SITE_URL}/sitemap.xml\n`
+  );
+});
+
+// Dynamic XML Sitemap for Homepage, Directory, and verified indexable names
+app.get('/sitemap.xml', async (_req, res) => {
+  try {
+    const indexableNames = await collectIndexableNames();
+    const today = new Date().toISOString().split('T')[0];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+    // Homepage
+    xml += `  <url>\n`;
+    xml += `    <loc>${SITE_URL}/</loc>\n`;
+    xml += `    <lastmod>${today}</lastmod>\n`;
+    xml += `    <changefreq>daily</changefreq>\n`;
+    xml += `    <priority>1.0</priority>\n`;
+    xml += `  </url>\n`;
+
+    // Browse Names Directory
+    xml += `  <url>\n`;
+    xml += `    <loc>${SITE_URL}/names</loc>\n`;
+    xml += `    <lastmod>${today}</lastmod>\n`;
+    xml += `    <changefreq>daily</changefreq>\n`;
+    xml += `    <priority>0.9</priority>\n`;
+    xml += `  </url>\n`;
+
+    // Thematic SEO Hubs
+    xml += `  <url>\n`;
+    xml += `    <loc>${SITE_URL}/songs-with-names</loc>\n`;
+    xml += `    <lastmod>${today}</lastmod>\n`;
+    xml += `    <changefreq>weekly</changefreq>\n`;
+    xml += `    <priority>0.9</priority>\n`;
+    xml += `  </url>\n`;
+
+    xml += `  <url>\n`;
+    xml += `    <loc>${SITE_URL}/acrostic-name-poems</loc>\n`;
+    xml += `    <lastmod>${today}</lastmod>\n`;
+    xml += `    <changefreq>weekly</changefreq>\n`;
+    xml += `    <priority>0.9</priority>\n`;
+    xml += `  </url>\n`;
+
+    // Individual verified name pages
+    for (const displayName of indexableNames) {
+      const slug = getNameSlug(displayName);
+      xml += `  <url>\n`;
+      xml += `    <loc>${SITE_URL}/name/${slug}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>weekly</changefreq>\n`;
+      xml += `    <priority>0.8</priority>\n`;
+      xml += `  </url>\n`;
+    }
+
+    xml += `</urlset>`;
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+    res.send(xml);
+  } catch (err) {
+    console.error('Failed generating sitemap.xml:', err);
+    res.status(500).type('text/plain').send('Error generating sitemap');
+  }
+});
+
+// Crawlable PNG Open Graph Cards (/og/default.png & /og/:nameSlug.png) — NOT blocked by robots.txt
+app.get('/og/default.png', (_req, res) => {
+  try {
+    const png = renderOgImagePng();
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800');
+    return res.send(png);
+  } catch (err) {
+    console.error('Failed rendering default OG PNG:', err);
+    return res.status(500).type('text/plain').send('Error generating image');
+  }
+});
+
+app.get('/og/:nameSlug.png', async (req, res) => {
+  try {
+    const rawSlug = safeDecodeURIComponent(req.params.nameSlug || '').trim();
+    if (!rawSlug || rawSlug.toLowerCase() === 'default' || !isValidNameInput(rawSlug).valid) {
+      const png = renderOgImagePng();
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800');
+      return res.send(png);
+    }
+
+    const { data, isResolved } = await resolveCachedOrCuratedName(rawSlug);
+    // Protect CPU & PNG cache from random-URL scraping: only render custom PNGs for resolved names
+    const png = isResolved ? renderOgImagePng(rawSlug, data) : renderOgImagePng();
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader(
+      'Cache-Control',
+      isResolved ? 'public, max-age=86400, s-maxage=604800' : 'public, max-age=3600'
+    );
+    return res.send(png);
+  } catch (err) {
+    console.error('Failed rendering name OG PNG:', err);
+    return res.status(500).type('text/plain').send('Error generating image');
+  }
+});
+
+// Backwards-compatible redirect from legacy /api/og-image SVG route to crawlable PNG route
+app.get(['/api/og-image', '/api/og-image/:nameSlug'], (req, res) => {
+  const rawSlug = safeDecodeURIComponent(req.params.nameSlug || '').trim();
+  if (!rawSlug || !isValidNameInput(rawSlug).valid) {
+    return res.redirect(301, '/og/default.png');
+  }
+  return res.redirect(301, `/og/${getNameSlug(rawSlug)}.png`);
+});
+
+// Read-only Directory API for SPA navigation (zero Gemini calls)
+app.get('/api/directory', async (_req, res) => {
+  try {
+    const curated = getCuratedDirectoryNames();
+    const indexableNames = await collectIndexableNames();
+    const curatedSet = new Set(curated.map((c) => normalizeText(c.name)));
+    const extraCached = indexableNames.filter((n) => !curatedSet.has(normalizeText(n)));
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.json({ curated, extraCached });
+  } catch (err) {
+    console.error('Failed loading directory API:', err);
+    return res.status(500).json({ error: 'Failed to load directory' });
+  }
+});
 
 // API endpoint to lookup cultural references for a name
 app.post('/api/lookup', async (req, res) => {
   const { name } = req.body;
-  if (!name || typeof name !== 'string' || !name.trim()) {
-    return res.status(400).json({ error: 'Name parameter is required' });
+  const validation = isValidNameInput(name);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.reason || 'Invalid name parameter' });
   }
 
-  // Cap input length at 80 chars to prevent massive token waste or abuse
-  const cleanName = name.trim().slice(0, 80);
+  const cleanName = formatDisplayName(name.trim().slice(0, 40));
   const lowerName = cleanName.toLowerCase();
   const normalizedName = normalizeText(cleanName);
 
-  // 1. IP Rate Limiting Check
-  const clientIp = ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
-  const now = Date.now();
-  const ipData = ipRequestCounts.get(clientIp);
+  // 1. Check zero-cost caches FIRST (curated -> in-memory -> Firestore) before rate-limiting or calling Gemini
+  const resolved = await resolveCachedOrCuratedName(cleanName);
+  if (resolved.isResolved) {
+    // Update search count asynchronously for Firestore cache hits (valid indexable names only)
+    const db = getFirestoreDb();
+    if (db && resolved.source === 'firestore_cache' && isIndexableName(cleanName)) {
+      const cacheDocRef = doc(db, 'name_cache', normalizedName);
+      setDoc(
+        cacheDocRef,
+        {
+          name: cleanName,
+          searchCount: increment(1),
+          lastSearchedAt: new Date().toISOString(),
+          schemaVersion: 3,
+        },
+        { merge: true }
+      ).catch(() => {});
 
-  if (ipData) {
-    if (now > ipData.resetTime) {
-      ipRequestCounts.set(clientIp, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
-    } else {
-      ipData.count += 1;
-      if (ipData.count > MAX_REQUESTS_PER_WINDOW) {
-        if (lookupCache.has(lowerName) || lookupCache.has(normalizedName)) {
-          const cached = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
-          return res.json({ ...cached!.data, source: 'cache' });
-        }
-        const fallbackData = findFallbackName(cleanName);
-        return res.status(429).json({
-          ...fallbackData,
-          source: 'fallback',
-          error: 'Rate limit exceeded. Please wait a minute before making more requests.',
-        });
-      }
+      const popDocRef = doc(db, 'popular_names', normalizedName);
+      setDoc(
+        popDocRef,
+        {
+          name: cleanName,
+          searchCount: increment(1),
+          lastSearchedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      ).catch(() => {});
     }
-  } else {
-    ipRequestCounts.set(clientIp, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
-  }
 
-  // 2. Check in-memory lookup cache
-  const cachedEntry = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
-  if (cachedEntry && (now - cachedEntry.timestamp < CACHE_TTL_MS)) {
-    if (isCachedDataValid(cachedEntry.data, cleanName)) {
-      return res.json({
-        ...cachedEntry.data,
-        source: 'cache',
-      });
-    }
-  }
-
-  // 3. Check curated static dataset next
-  if (POPULAR_NAMES_DATA[lowerName]) {
     return res.json({
-      ...POPULAR_NAMES_DATA[lowerName],
-      source: 'curated',
+      ...resolved.data,
+      source: resolved.source,
     });
   }
 
-  // 4. Check Firestore database cache (name_cache collection) for saved dynamic results
-  const db = getFirestoreDb();
-  if (db) {
+  // 2. Block cross-origin abuse and automated bots BEFORE spending Gemini API tokens
+  if (!isAllowedApiOrigin(req)) {
+    return res.status(403).json({ error: 'Cross-origin API request denied.' });
+  }
+
+  if (isAutomatedBot(req)) {
+    return res.json({
+      ...resolved.data,
+      source: 'fallback',
+      message: 'Automated client served from zero-cost archive.',
+    });
+  }
+
+  // 3. IP Rate Limiting Check (per-minute + per-hour, only enforced on uncached Gemini requests)
+  const clientIp = getClientIp(req);
+  if (
+    !checkRateLimit(ipLookupMinuteCounts, clientIp, MAX_LOOKUP_PER_MINUTE, MINUTE_WINDOW_MS) ||
+    !checkRateLimit(ipLookupHourCounts, clientIp, MAX_LOOKUP_PER_HOUR, HOUR_WINDOW_MS)
+  ) {
+    return res.status(429).json({
+      ...resolved.data,
+      source: 'fallback',
+      error: 'Rate limit exceeded. Please wait before making more live lookups.',
+    });
+  }
+
+  // 4. In-flight request deduplication (prevents double-billing if two requests arrive simultaneously)
+  const existingInFlight = inFlightLookups.get(normalizedName);
+  if (existingInFlight) {
     try {
-      const cacheDocRef = doc(db, 'name_cache', lowerName);
-      const docSnap = await getDoc(cacheDocRef);
-      if (docSnap.exists()) {
-        const firestoreData = docSnap.data();
-        if (firestoreData && firestoreData.data) {
-          const isFreshSchema = (firestoreData.schemaVersion || 0) >= 3;
-          if (isFreshSchema && isCachedDataValid(firestoreData.data, cleanName)) {
-            // Increment search count asynchronously
-            setDoc(cacheDocRef, {
-              searchCount: increment(1),
-              lastSearchedAt: new Date().toISOString(),
-            }, { merge: true }).catch(() => {});
-
-            const popDocRef = doc(db, 'popular_names', lowerName);
-            setDoc(popDocRef, {
-              name: cleanName,
-              searchCount: increment(1),
-              lastSearchedAt: new Date().toISOString(),
-            }, { merge: true }).catch(() => {});
-
-            // Save in server in-memory cache for ultra-fast subsequent hits
-            setInLookupCache(lowerName, firestoreData.data);
-            setInLookupCache(normalizedName, firestoreData.data);
-
-            return res.json({
-              ...firestoreData.data,
-              source: 'firestore_cache',
-            });
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('Firestore cache read error:', err);
+      const sharedResult = await existingInFlight;
+      return res.json(sharedResult);
+    } catch {
+      return res.json({ ...resolved.data, source: 'fallback' });
     }
   }
 
-  const ai = getGeminiClient();
-
-  if (!ai) {
-    const fallbackData = findFallbackName(cleanName);
+  // 5. Global Daily Gemini Budget Circuit Breaker
+  if (!canSpendGeminiCall()) {
+    console.warn(`[Cost Guardrail] Daily Gemini lookup cap (${MAX_DAILY_GEMINI_CALLS}) reached. Returning fallback.`);
     return res.json({
-      ...fallbackData,
+      ...resolved.data,
+      source: 'fallback',
+      message: 'Daily live discovery limit reached; returning curated fallback.',
+    });
+  }
+
+  const ai = getGeminiClient();
+  if (!ai) {
+    return res.json({
+      ...resolved.data,
       source: 'fallback',
       message: 'Gemini API key not configured, returning curated fallback dataset.',
     });
   }
 
-  try {
-    const prompt = `You are the cultural historian for "The Page of You".
-Find iconic, famous, historically authentic, and verifiable cultural references for the name or search term "${cleanName}".
+  const lookupPromise = (async () => {
+    try {
+      const prompt = `Cultural historian for "The Page of You". Return strict JSON for the name "${cleanName}".
 
-TARGET: You MUST provide exactly 2 to 3 distinct, high-quality entries for EACH of the 5 categories (books, songs, movies, games, art).
-
-WHAT COUNTS AS A VALID CULTURAL CONNECTION FOR "${cleanName}":
-1. Titular or prominent characters named "${cleanName}" (e.g., Pascal the chameleon in Disney's "Tangled", Pascal in "NieR: Automata", Pascal the philosopher otter in "Animal Crossing").
-2. Renowned creators, philosophers, authors, artists, or historical figures bearing the name "${cleanName}" (e.g., Blaise Pascal's "Pensées" and "The Pascaline" mechanical calculator for Pascal; Leonardo da Vinci for Leonardo; Dante for Dante).
-3. Acclaimed film/TV works starring celebrated actors or creators prominently named "${cleanName}" (e.g., Pedro Pascal in "The Last of Us", "The Mandalorian", or "Gladiator II").
-4. Songs, lyrics, game lore, architectural works, or books that explicitly feature "${cleanName}" in their title, dialogue, lyrics, or subject matter.
-
-CATEGORY RULES (Provide 2 to 3 items in each):
-- books (2-3 items): Notable books featuring a character named "${cleanName}", iconic quotes mentioning "${cleanName}", or seminal masterpieces written by legendary thinkers/authors named "${cleanName}" (e.g., Blaise Pascal's "Pensées").
-- songs (2-3 items): Well-known songs with "${cleanName}" in the title, memorable lyrics singing "${cleanName}", or landmark recordings by celebrated artists named "${cleanName}".
-- movies (2-3 items): Renowned films or series featuring a character named "${cleanName}" (e.g., "Tangled"), famous dialogue quotes, or starring acclaimed actors named "${cleanName}" (e.g., Pedro Pascal).
-- games (2-3 items): Major video games with a memorable character named "${cleanName}" (e.g., "NieR: Automata", "Animal Crossing", "Pascal's Wager"), or featuring "${cleanName}" in lore or title.
-- art (2-3 items): Famous paintings, sculptures, historical inventions, monuments, or portraits depicting or created by figures named "${cleanName}" (e.g., Pajou's statue of Blaise Pascal in the Louvre, "The Pascaline" mechanical calculator).
-
-STRICT ANTI-HALLUCINATION INTEGRITY:
-- Every single entry MUST genuinely connect to "${cleanName}".
-- NEVER substitute phonetically similar but different names (e.g., NEVER return "Kaspar" for "Pascal", NEVER return "Marcus" for "Lucas", NEVER return "Julian" for "Adrian"). If an item is not about "${cleanName}", it is strictly forbidden.
-- Real, verifiable works only. Do not invent fake titles or fake artists.
-
+GOAL: Provide 2-3 verifiable, authentic entries per category (books, songs, movies, games, art) where genuinely available (never fabricate).
+VALID CONNECTIONS FOR "${cleanName}":
+- Notable characters, historical figures, authors, actors, or artists named "${cleanName}"
+- Real books, songs, films/TV, video games, or artworks explicitly featuring "${cleanName}" in title, lyrics, dialogue, lore, or creator.
+STRICT RULES:
+- Real, verifiable works only. Never invent titles or quotes.
+- Never confuse "${cleanName}" with similar-sounding different names.
 ETYMOLOGY & ACROSTIC:
-- Origin: 1-2 engaging, historically accurate sentences on linguistic roots.
-- Meaning: Eloquent, inspiring summary of the name's meaning.
-- Adjectives: Exactly 5 inspiring personality adjectives fitting the spirit of the name.
-- Acrostic: An acrostic poem where each letter of "${cleanName}" starts an inspiring line.
+- origin: concise, historically accurate linguistic roots (e.g. "Old French / Greek").
+- meaning: concise, accurate meaning of "${cleanName}".
+- adjectives: 5 fitting personality adjectives.
+- acrostic: inspiring acrostic poem spelling "${cleanName}".`;
 
-Return strict JSON adhering to the specified schema.`;
-
-    const responseSchema = {
-      type: Type.OBJECT,
-      properties: {
-        name: { type: Type.STRING },
-        meaning: { type: Type.STRING },
-        origin: { type: Type.STRING },
-        adjectives: { type: Type.ARRAY, items: { type: Type.STRING } },
-        acrostic: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              letter: { type: Type.STRING },
-              line: { type: Type.STRING },
+      const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          meaning: { type: Type.STRING },
+          origin: { type: Type.STRING },
+          adjectives: { type: Type.ARRAY, items: { type: Type.STRING } },
+          acrostic: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                letter: { type: Type.STRING },
+                line: { type: Type.STRING },
+              },
+              required: ['letter', 'line'],
             },
-            required: ['letter', 'line'],
+          },
+          books: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                author: { type: Type.STRING },
+                year: { type: Type.STRING },
+                quote: { type: Type.STRING },
+                context: { type: Type.STRING },
+              },
+              required: ['title', 'author', 'quote'],
+            },
+          },
+          songs: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                artist: { type: Type.STRING },
+                year: { type: Type.STRING },
+                lyricsQuote: { type: Type.STRING },
+                albumVibe: { type: Type.STRING },
+              },
+              required: ['title', 'artist', 'lyricsQuote'],
+            },
+          },
+          movies: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                character: { type: Type.STRING },
+                actor: { type: Type.STRING },
+                year: { type: Type.STRING },
+                quote: { type: Type.STRING },
+              },
+              required: ['title', 'quote'],
+            },
+          },
+          games: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                character: { type: Type.STRING },
+                developer: { type: Type.STRING },
+                year: { type: Type.STRING },
+                quote: { type: Type.STRING },
+              },
+              required: ['title', 'quote'],
+            },
+          },
+          art: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                artist: { type: Type.STRING },
+                year: { type: Type.STRING },
+                medium: { type: Type.STRING },
+                quote: { type: Type.STRING },
+              },
+              required: ['title', 'artist', 'quote'],
+            },
           },
         },
-        books: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              author: { type: Type.STRING },
-              year: { type: Type.STRING },
-              quote: { type: Type.STRING },
-              context: { type: Type.STRING },
-            },
-            required: ['title', 'author', 'quote'],
-          },
-        },
-        songs: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              artist: { type: Type.STRING },
-              year: { type: Type.STRING },
-              lyricsQuote: { type: Type.STRING },
-              albumVibe: { type: Type.STRING },
-            },
-            required: ['title', 'artist', 'lyricsQuote'],
-          },
-        },
-        movies: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              character: { type: Type.STRING },
-              actor: { type: Type.STRING },
-              year: { type: Type.STRING },
-              quote: { type: Type.STRING },
-            },
-            required: ['title', 'quote'],
-          },
-        },
-        games: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              character: { type: Type.STRING },
-              developer: { type: Type.STRING },
-              year: { type: Type.STRING },
-              quote: { type: Type.STRING },
-            },
-            required: ['title', 'quote'],
-          },
-        },
-        art: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              artist: { type: Type.STRING },
-              year: { type: Type.STRING },
-              medium: { type: Type.STRING },
-              quote: { type: Type.STRING },
-            },
-            required: ['title', 'artist', 'quote'],
-          },
-        },
-      },
-      required: ['name', 'meaning', 'books', 'songs', 'movies', 'games', 'art', 'acrostic'],
-    };
-
-    const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-    const modelsToTry = Array.from(new Set([
-      primaryModel,
-      'gemini-3.1-flash-lite',
-      'gemini-2.5-flash',
-    ]));
-
-    let parsedData = null;
-    let lastError = null;
-
-    for (const modelName of modelsToTry) {
-      let timeoutId: NodeJS.Timeout | null = null;
-      try {
-        const timeoutPromise = new Promise((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 7000);
-        });
-
-        const apiPromise = ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema,
-            maxOutputTokens: 2048,
-          },
-        });
-
-        const response: any = await Promise.race([apiPromise, timeoutPromise]);
-        if (timeoutId) clearTimeout(timeoutId);
-
-        if (response && response.text) {
-          let rawText = response.text.trim();
-          if (rawText.startsWith('```')) {
-            rawText = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-          }
-          parsedData = JSON.parse(rawText);
-          break;
-        }
-      } catch (err: any) {
-        if (timeoutId) clearTimeout(timeoutId);
-        lastError = err;
-        const msg = err?.message || String(err);
-        const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
-        const shortMsg = isRateLimit
-          ? 'Rate limit exceeded (429)'
-          : msg.slice(0, 120);
-        console.warn(`Model ${modelName} issue: ${shortMsg}`);
-
-        // If rate limited, pause briefly before trying the next model
-        if (isRateLimit) {
-          await new Promise(resolve => setTimeout(resolve, 800));
-        }
-      }
-      if (parsedData) break;
-    }
-
-    if (parsedData) {
-      // Clean and validate items to guarantee authenticity and eliminate hallucinations
-      const ensureIdsAndFilter = (arr: any[], category: string) => {
-        if (!Array.isArray(arr)) return [];
-        return arr
-          .filter(item => isValidCulturalItem(item, cleanName))
-          .map((item, idx) => ({
-            ...item,
-            id: item.id || `${normalizedName}-${category}-${idx + 1}-${Date.now().toString(36)}`,
-          }));
+        required: ['name', 'meaning', 'origin', 'books', 'songs', 'movies', 'games', 'art', 'acrostic'],
       };
-      parsedData.books = ensureIdsAndFilter(parsedData.books, 'books');
-      parsedData.songs = ensureIdsAndFilter(parsedData.songs, 'songs');
-      parsedData.movies = ensureIdsAndFilter(parsedData.movies, 'movies');
-      parsedData.games = ensureIdsAndFilter(parsedData.games, 'games');
-      parsedData.art = ensureIdsAndFilter(parsedData.art, 'art');
 
-      // Save to memory cache to eliminate future duplicate API calls
-      setInLookupCache(lowerName, parsedData);
-      setInLookupCache(normalizedName, parsedData);
+      const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+      const modelsToTry = Array.from(new Set([primaryModel, 'gemini-3.1-flash-lite', 'gemini-2.5-flash']));
 
-      // Save to Firestore name_cache and popular_names asynchronously for global database persistence
-      if (db) {
+      let parsedData: any = null;
+      let lastError: any = null;
+
+      for (const modelName of modelsToTry) {
+        if (!canSpendGeminiCall()) break;
+        let timeoutId: NodeJS.Timeout | null = null;
         try {
-          const cacheDocRef = doc(db, 'name_cache', normalizedName);
-          setDoc(cacheDocRef, {
-            name: cleanName,
-            data: parsedData,
-            searchCount: 1,
-            lastSearchedAt: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            schemaVersion: 3,
-          }, { merge: true }).catch(e => console.warn('Firestore save name_cache error:', e));
+          recordGeminiCall();
+          const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(`Timeout requesting ${modelName}`)), 15000);
+          });
 
-          const popDocRef = doc(db, 'popular_names', normalizedName);
-          setDoc(popDocRef, {
-            name: cleanName,
-            searchCount: increment(1),
-            lastSearchedAt: new Date().toISOString(),
-          }, { merge: true }).catch(e => console.warn('Firestore save popular_names error:', e));
-        } catch (e) {
-          console.warn('Firestore write error:', e);
+          const apiPromise = ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema,
+              maxOutputTokens: 1800,
+            },
+          });
+
+          const response: any = await Promise.race([apiPromise, timeoutPromise]);
+          if (timeoutId) clearTimeout(timeoutId);
+
+          if (response && response.text) {
+            let rawText = response.text.trim();
+            if (rawText.startsWith('```')) {
+              rawText = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+            }
+            parsedData = JSON.parse(rawText);
+            break;
+          }
+        } catch (err: any) {
+          if (timeoutId) clearTimeout(timeoutId);
+          lastError = err;
+          const msg = err?.message || String(err);
+          const isTimeout = msg.startsWith('Timeout requesting');
+          const isFallbackWorthy =
+            msg.includes('429') ||
+            msg.includes('503') ||
+            msg.includes('quota') ||
+            msg.includes('RESOURCE_EXHAUSTED') ||
+            msg.includes('NOT_FOUND') ||
+            msg.includes('UNAVAILABLE');
+          console.warn(`Model ${modelName} issue: ${msg.slice(0, 120)}`);
+
+          // Never double-bill a slower fallback model on client-side timeout where primary may still complete
+          if (isTimeout || !isFallbackWorthy) {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 800));
         }
+        if (parsedData) break;
       }
 
-      return res.json({
-        ...parsedData,
-        source: 'gemini',
-      });
-    } else {
-      console.warn('All Gemini models failed or rate-limited. Returning fallback data.');
-      const fallbackData = findFallbackName(cleanName);
-      return res.json({
-        ...fallbackData,
+      if (parsedData) {
+        const ensureIdsAndFilter = (arr: any[], category: string) => {
+          if (!Array.isArray(arr)) return [];
+          return arr
+            .filter((item) => isValidCulturalItem(item, cleanName))
+            .map((item, idx) => ({
+              ...item,
+              id: item.id || `${normalizedName}-${category}-${idx + 1}-${Date.now().toString(36)}`,
+            }));
+        };
+
+        parsedData.name = cleanName;
+        parsedData.books = ensureIdsAndFilter(parsedData.books, 'books');
+        parsedData.songs = ensureIdsAndFilter(parsedData.songs, 'songs');
+        parsedData.movies = ensureIdsAndFilter(parsedData.movies, 'movies');
+        parsedData.games = ensureIdsAndFilter(parsedData.games, 'games');
+        parsedData.art = ensureIdsAndFilter(parsedData.art, 'art');
+
+        // Cache in memory immediately to eliminate repeat API calls
+        setInLookupCache(normalizedName, parsedData);
+        if (lowerName !== normalizedName) setInLookupCache(lowerName, parsedData);
+
+        // Persist in Firestore under canonical normalizedName key with schemaVersion: 3
+        const db = getFirestoreDb();
+        if (db && isCachedDataValid(parsedData, cleanName)) {
+          try {
+            const cacheDocRef = doc(db, 'name_cache', normalizedName);
+            setDoc(
+              cacheDocRef,
+              {
+                name: cleanName,
+                data: parsedData,
+                searchCount: 1,
+                lastSearchedAt: new Date().toISOString(),
+                createdAt: new Date().toISOString(),
+                schemaVersion: 3,
+              },
+              { merge: true }
+            ).catch((e) => console.warn('Firestore save name_cache error:', e));
+
+            if (isIndexableName(cleanName)) {
+              const popDocRef = doc(db, 'popular_names', normalizedName);
+              setDoc(
+                popDocRef,
+                {
+                  name: cleanName,
+                  searchCount: increment(1),
+                  lastSearchedAt: new Date().toISOString(),
+                },
+                { merge: true }
+              ).catch((e) => console.warn('Firestore save popular_names error:', e));
+            }
+          } catch (e) {
+            console.warn('Firestore write error:', e);
+          }
+        }
+
+        return {
+          ...parsedData,
+          source: 'gemini',
+        };
+      }
+
+      console.warn('Gemini lookup did not return data. Returning fallback.');
+      return {
+        ...resolved.data,
         source: 'fallback',
         error: lastError?.message || 'Model API unavailable',
-      });
+      };
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Error fetching name data from Gemini:', errorMessage);
+      return {
+        ...resolved.data,
+        source: 'fallback',
+        error: errorMessage,
+      };
+    } finally {
+      inFlightLookups.delete(normalizedName);
     }
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Error fetching name data from Gemini:', errorMessage);
-    const fallbackData = findFallbackName(cleanName);
-    return res.json({
-      ...fallbackData,
-      source: 'fallback',
-      error: errorMessage,
-    });
-  }
+  })();
+
+  inFlightLookups.set(normalizedName, lookupPromise);
+  const finalPayload = await lookupPromise;
+  return res.json(finalPayload);
 });
 
-// Tier 2: On-Demand Cultural Reference Discovery / Enrichment
+// Tier 2: On-Demand Cultural Reference Enrichment (now protected by IP rate limit, per-name cap, and daily budget)
 app.post('/api/enrich-category', async (req, res) => {
   const { name, category, existingTitles = [] } = req.body;
-  if (!name || typeof name !== 'string' || !name.trim()) {
-    return res.status(400).json({ error: 'Name parameter is required' });
+  const validation = isValidNameInput(name);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.reason || 'Invalid name parameter', items: [] });
   }
-  const cleanName = name.trim().slice(0, 80);
+
+  // Cap enrichment to prevent runaway token spend on a single name
+  if (Array.isArray(existingTitles) && existingTitles.length >= 25) {
+    return res.json({
+      success: false,
+      category: (category || 'all').toLowerCase(),
+      items: [],
+      message: 'Maximum curated references already loaded for this name.',
+    });
+  }
+
+  // Block cross-origin abuse and automated bots from spending enrichment tokens
+  if (!isAllowedApiOrigin(req)) {
+    return res.status(403).json({ success: false, error: 'Cross-origin API request denied.', items: [] });
+  }
+  if (isAutomatedBot(req)) {
+    return res.status(403).json({ success: false, error: 'Automated enrichment requests are not permitted.', items: [] });
+  }
+
+  // Enforce IP rate limit on /api/enrich-category
+  const clientIp = getClientIp(req);
+  if (!checkRateLimit(ipEnrichMinuteCounts, clientIp, MAX_ENRICH_PER_MINUTE, MINUTE_WINDOW_MS)) {
+    return res.status(429).json({
+      success: false,
+      error: 'Too many enrichment requests. Please wait a minute and try again.',
+      items: [],
+    });
+  }
+
+  const cleanName = formatDisplayName(name.trim().slice(0, 40));
   const lowerName = cleanName.toLowerCase();
   const normalizedName = normalizeText(cleanName);
   const targetCategory = (category || 'all').toLowerCase();
+  const enrichKey = `${normalizedName}:${targetCategory}`;
+
+  // Deduplicate concurrent enrichment clicks for the same name & category
+  const activeEnrich = inFlightEnrichments.get(enrichKey);
+  if (activeEnrich) {
+    const shared = await activeEnrich;
+    return res.json(shared);
+  }
+
+  // Enforce global daily budget circuit breaker
+  if (!canSpendGeminiCall()) {
+    return res.status(503).json({
+      success: false,
+      error: 'Daily live discovery limit reached.',
+      items: [],
+    });
+  }
 
   const ai = getGeminiClient();
   if (!ai) {
     return res.status(503).json({ error: 'AI discovery engine not available', items: [] });
   }
 
-  const existingTitlesList = Array.isArray(existingTitles) ? existingTitles.slice(0, 30).join(', ') : '';
+  const existingTitlesList = Array.isArray(existingTitles) ? existingTitles.slice(0, 25).join(', ') : '';
 
   let categoryInstruction = '';
   let responseSchema: any = null;
 
   if (targetCategory === 'books') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct, authentic book references or literary characters/works connecting to "${cleanName}" (such as characters named "${cleanName}", iconic quotes mentioning "${cleanName}", or seminal works by authors named "${cleanName}") not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 NEW, verifiable books connecting to "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -692,14 +939,14 @@ app.post('/api/enrich-category', async (req, res) => {
               quote: { type: Type.STRING },
               context: { type: Type.STRING },
             },
-            required: ['title', 'author', 'quote'],
+            required: ['title', 'author', 'quote', 'context'],
           },
         },
       },
       required: ['books'],
     };
   } else if (targetCategory === 'songs') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct song lyrics, track titles, or celebrated songs mentioning or performed by "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 NEW, verifiable songs mentioning or by "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -721,7 +968,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['songs'],
     };
   } else if (targetCategory === 'movies') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct film/TV references, iconic dialogue quotes, or works starring characters or actors named "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 NEW, verifiable film/TV references for "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -743,7 +990,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['movies'],
     };
   } else if (targetCategory === 'games') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct video game lore references, character mentions, or game titles featuring "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 NEW, verifiable video game references for "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -765,7 +1012,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['games'],
     };
   } else if (targetCategory === 'art') {
-    categoryInstruction = `Find 2 to 3 NEW, distinct fine art works, paintings, sculptures, historical inventions, or landmarks depicting or created by "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find 2 NEW, verifiable fine art works or artists for "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -787,391 +1034,334 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['art'],
     };
   } else {
-    // General expansion across primary media
-    categoryInstruction = `Find 2 additional distinct books, songs, and movies connecting to "${cleanName}" not in: [${existingTitlesList}].`;
-    responseSchema = {
-      type: Type.OBJECT,
-      properties: {
-        books: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              author: { type: Type.STRING },
-              year: { type: Type.STRING },
-              quote: { type: Type.STRING },
-            },
-            required: ['title', 'author', 'quote'],
-          },
-        },
-        songs: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              artist: { type: Type.STRING },
-              year: { type: Type.STRING },
-              lyricsQuote: { type: Type.STRING },
-            },
-            required: ['title', 'artist', 'lyricsQuote'],
-          },
-        },
-        movies: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              quote: { type: Type.STRING },
-            },
-            required: ['title', 'quote'],
-          },
-        },
-      },
-    };
+    return res.status(400).json({ error: 'Invalid enrichment category', items: [] });
   }
 
-  const prompt = `You are a meticulous cultural archivist for "The Page of You".
-For the search term "${cleanName}":
-${categoryInstruction}
+  const prompt = `Cultural archivist for "The Page of You". For "${cleanName}": ${categoryInstruction}
+Rules:
+- Real, verifiable works only. Never invent titles or quotes.
+- Must genuinely connect to "${cleanName}" (never similar-sounding different names).
+- Do NOT repeat any title already listed in: [${existingTitlesList}].
+- Always explicitly mention "${cleanName}" in the title, quote, lyricsQuote, character, or context field so the connection is clear.
+- Return strict JSON.`;
 
-WHAT COUNTS AS A VALID REFERENCE FOR "${cleanName}":
-- Titular or featured characters named "${cleanName}"
-- Renowned creators, philosophers, authors, or artists named "${cleanName}"
-- Works starring famous actors or creators named "${cleanName}"
-- Direct dialogue quotes, lyrics, or titles explicitly containing "${cleanName}"
+  const existingTitleSet = new Set(
+    (Array.isArray(existingTitles) ? existingTitles : [])
+      .map((t: unknown) => String(t || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
 
-STRICT INTEGRITY RULES:
-- NEVER confuse "${cleanName}" with phonetically similar but different names. Every returned item MUST genuinely connect to "${cleanName}".
-- Real, verifiable works only. Do not invent fake titles or fake authors.
+  const enrichPromise = (async () => {
+    try {
+      const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+      const modelsToTry = Array.from(new Set([primaryModel, 'gemini-3.1-flash-lite', 'gemini-2.5-flash']));
+      let enrichedData: any = null;
+      let lastModelError = '';
 
-Return strict JSON adhering to the specified schema.`;
+      for (const model of modelsToTry) {
+        if (!canSpendGeminiCall()) break;
+        let timeoutId: NodeJS.Timeout | null = null;
+        try {
+          recordGeminiCall();
+          const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(`Timeout enriching via ${model}`)), 12000);
+          });
+          const apiPromise = ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema,
+              maxOutputTokens: 900,
+            },
+          });
+          const response: any = await Promise.race([apiPromise, timeoutPromise]);
+          if (timeoutId) clearTimeout(timeoutId);
 
-  try {
-    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-2.5-flash'];
-    let enrichedData: any = null;
-
-    for (const model of modelsToTry) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema,
-            maxOutputTokens: 1200,
-          },
-        });
-        if (response && response.text) {
-          let text = response.text.trim();
-          if (text.startsWith('```')) {
-            text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+          if (response && response.text) {
+            let text = response.text.trim();
+            if (text.startsWith('```')) {
+              text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+            }
+            enrichedData = JSON.parse(text);
+            if (enrichedData) break;
           }
-          enrichedData = JSON.parse(text);
-          if (enrichedData) break;
+        } catch (err: any) {
+          if (timeoutId) clearTimeout(timeoutId);
+          const msg = err?.message || String(err);
+          lastModelError = msg;
+          console.warn(`Enrichment attempt failed on ${model}: ${msg.slice(0, 120)}`);
+          const isTimeout = msg.startsWith('Timeout enriching');
+          const isFallbackWorthy =
+            msg.includes('429') ||
+            msg.includes('503') ||
+            msg.includes('404') ||
+            msg.includes('quota') ||
+            msg.includes('RESOURCE_EXHAUSTED') ||
+            msg.includes('NOT_FOUND') ||
+            msg.includes('UNAVAILABLE');
+          if (isTimeout || !isFallbackWorthy) break;
+          await new Promise((resolve) => setTimeout(resolve, 400));
         }
-      } catch (err) {
-        console.warn(`Enrichment attempt failed on ${model}:`, err);
       }
-    }
 
-    if (!enrichedData) {
-      return res.json({ success: false, category: targetCategory, items: [], message: 'No additional references found.' });
-    }
-
-    // Validate and attach IDs to enriched items
-    const processEnrichedCategory = (cat: string) => {
-      if (Array.isArray(enrichedData[cat])) {
-        enrichedData[cat] = enrichedData[cat]
-          .filter((item: any) => isValidCulturalItem(item, cleanName))
-          .map((item: any, idx: number) => ({
-            ...item,
-            id: item.id || `${normalizedName}-${cat}-enriched-${idx + 1}-${Date.now().toString(36)}`,
-          }));
+      if (!enrichedData) {
+        return {
+          success: false,
+          category: targetCategory,
+          items: [],
+          message: lastModelError.startsWith('Timeout enriching')
+            ? 'Archive search timed out. Please try again in a moment.'
+            : 'No additional verified references were found right now.',
+        };
       }
-    };
-    ['books', 'songs', 'movies', 'games', 'art'].forEach(processEnrichedCategory);
 
-    // Merge into Firestore cache & in-memory cache
-    const db = getFirestoreDb();
-    if (db) {
-      try {
-        const cacheDocRef = doc(db, 'name_cache', normalizedName);
-        const docSnap = await getDoc(cacheDocRef);
-        if (docSnap.exists()) {
-          const currentDoc = docSnap.data()?.data || {};
-          const merged = { ...currentDoc };
-
-          if (enrichedData.books) {
-            merged.books = [...(merged.books || []), ...enrichedData.books];
-          }
-          if (enrichedData.songs) {
-            merged.songs = [...(merged.songs || []), ...enrichedData.songs];
-          }
-          if (enrichedData.movies) {
-            merged.movies = [...(merged.movies || []), ...enrichedData.movies];
-          }
-          if (enrichedData.games) {
-            merged.games = [...(merged.games || []), ...enrichedData.games];
-          }
-          if (enrichedData.art) {
-            merged.art = [...(merged.art || []), ...enrichedData.art];
-          }
-
-          await setDoc(cacheDocRef, { data: merged }, { merge: true });
-          setInLookupCache(lowerName, merged);
-          setInLookupCache(normalizedName, merged);
+      let addedCount = 0;
+      const processEnrichedCategory = (cat: string) => {
+        if (Array.isArray(enrichedData[cat])) {
+          const seenNew = new Set<string>();
+          enrichedData[cat] = enrichedData[cat]
+            .filter((item: any) => {
+              if (!isValidCulturalItem(item, cleanName)) return false;
+              const titleKey = String(item?.title || '').trim().toLowerCase();
+              if (!titleKey || existingTitleSet.has(titleKey) || seenNew.has(titleKey)) {
+                return false;
+              }
+              seenNew.add(titleKey);
+              return true;
+            })
+            .map((item: any, idx: number) => ({
+              ...item,
+              id: item.id || `${normalizedName}-${cat}-enriched-${idx + 1}-${Date.now().toString(36)}`,
+            }));
+          addedCount += enrichedData[cat].length;
         }
-      } catch (e) {
-        console.warn('Failed merging enriched references in Firestore:', e);
-      }
-    }
+      };
+      ['books', 'songs', 'movies', 'games', 'art'].forEach(processEnrichedCategory);
 
-    return res.json({
-      success: true,
-      category: targetCategory,
-      data: enrichedData,
-    });
-  } catch (err: any) {
-    console.error('Error during enrich-category API call:', err);
-    return res.status(500).json({ error: 'Failed to discover additional cultural references' });
-  }
+      if (addedCount === 0) {
+        return {
+          success: false,
+          category: targetCategory,
+          items: [],
+          message: 'All top verified references for this category are already loaded.',
+        };
+      }
+
+      // Merge into in-memory cache (using curated base if not yet in lookupCache)
+      const baseMem =
+        lookupCache.get(normalizedName)?.data ||
+        POPULAR_NAMES_DATA[lowerName] ||
+        POPULAR_NAMES_DATA[normalizedName];
+      if (baseMem) {
+        const mergedMem = { ...baseMem };
+        for (const cat of ['books', 'songs', 'movies', 'games', 'art']) {
+          if (Array.isArray(enrichedData[cat]) && enrichedData[cat].length > 0) {
+            mergedMem[cat] = [...(mergedMem[cat] || []), ...enrichedData[cat]];
+          }
+        }
+        setInLookupCache(normalizedName, mergedMem);
+        if (lowerName !== normalizedName) setInLookupCache(lowerName, mergedMem);
+      }
+
+      // Persist enriched results to Firestore even when enriching a static curated name (prevents repeat billing after restart)
+      const db = getFirestoreDb();
+      if (db) {
+        try {
+          const cacheDocRef = doc(db, 'name_cache', normalizedName);
+          const docSnap = await getDoc(cacheDocRef);
+          const baseDoc = docSnap.exists()
+            ? docSnap.data()?.data
+            : POPULAR_NAMES_DATA[lowerName] || POPULAR_NAMES_DATA[normalizedName] || null;
+          if (baseDoc) {
+            const merged = { ...baseDoc };
+            for (const cat of ['books', 'songs', 'movies', 'games', 'art']) {
+              if (Array.isArray(enrichedData[cat]) && enrichedData[cat].length > 0) {
+                merged[cat] = [...(merged[cat] || []), ...enrichedData[cat]];
+              }
+            }
+            await setDoc(
+              cacheDocRef,
+              {
+                name: cleanName,
+                data: merged,
+                schemaVersion: 3,
+                lastSearchedAt: new Date().toISOString(),
+                ...(docSnap.exists() ? {} : { createdAt: new Date().toISOString(), searchCount: 1 }),
+              },
+              { merge: true }
+            );
+            setInLookupCache(normalizedName, merged);
+            if (lowerName !== normalizedName) setInLookupCache(lowerName, merged);
+          }
+        } catch (e) {
+          console.warn('Failed merging enriched references in Firestore:', e);
+        }
+      }
+
+      return {
+        success: true,
+        category: targetCategory,
+        addedCount,
+        data: enrichedData,
+      };
+    } catch (err: any) {
+      console.error('Error during enrich-category API call:', err);
+      return { success: false, error: 'Failed to discover additional cultural references', items: [] };
+    } finally {
+      inFlightEnrichments.delete(enrichKey);
+    }
+  })();
+
+  inFlightEnrichments.set(enrichKey, enrichPromise);
+  const enrichResult = await enrichPromise;
+  return res.json(enrichResult);
 });
 
-async function prewarmCache() {
-  try {
-    // 1. Warm in-memory cache with curated popular names
-    for (const [key, nameData] of Object.entries(POPULAR_NAMES_DATA)) {
-      const lower = key.toLowerCase();
-      const norm = normalizeText(key);
-      setInLookupCache(lower, nameData);
-      if (norm !== lower) {
-        setInLookupCache(norm, nameData);
-      }
-    }
-
-    // 2. Warm Firestore name_cache for popular curated names
-    const db = getFirestoreDb();
-    if (db) {
-      for (const [key, nameData] of Object.entries(POPULAR_NAMES_DATA)) {
-        const normKey = normalizeText(key);
-        const cacheDocRef = doc(db, 'name_cache', normKey);
-        setDoc(cacheDocRef, {
-          name: nameData.name,
-          data: nameData,
-          searchCount: 1,
-          lastSearchedAt: new Date().toISOString(),
-          createdAt: new Date().toISOString(),
-          schemaVersion: 2,
-        }, { merge: true }).catch(() => {});
-      }
-    }
-    console.log(`[Cache Warmup] Successfully pre-warmed cache with ${Object.keys(POPULAR_NAMES_DATA).length} popular name entries.`);
-  } catch (err) {
-    console.warn('[Cache Warmup] Cache pre-warming warning:', err);
+// Warm in-memory cache only (does NOT overwrite Firestore searchCount or downgrade schemaVersion!)
+function prewarmInMemoryCache() {
+  for (const [key, nameData] of Object.entries(POPULAR_NAMES_DATA)) {
+    const lower = key.toLowerCase();
+    const norm = normalizeText(key);
+    setInLookupCache(norm, nameData);
+    if (norm !== lower) setInLookupCache(lower, nameData);
   }
-}
-
-// Helper to generate SEO-rich HTML for individual name pages
-async function renderNameHtml(templateHtml: string, rawName: string): Promise<string> {
-  const cleanName = rawName.trim();
-  const lowerName = cleanName.toLowerCase();
-  const normalizedName = normalizeText(cleanName);
-
-  // 1. Try static curated dictionary first
-  let nameData: any = POPULAR_NAMES_DATA[lowerName] || POPULAR_NAMES_DATA[normalizedName];
-
-  // 2. Try in-memory lookup cache
-  if (!nameData) {
-    const cached = lookupCache.get(lowerName) || lookupCache.get(normalizedName);
-    if (cached?.data) {
-      nameData = cached.data;
-    }
-  }
-
-  // 3. Try Firestore persistent cache if available
-  if (!nameData) {
-    const db = getFirestoreDb();
-    if (db) {
-      try {
-        const cacheDocRef = doc(db, 'name_cache', normalizedName);
-        const snap = await getDoc(cacheDocRef);
-        if (snap.exists()) {
-          const fsData = snap.data();
-          if (fsData?.data) {
-            nameData = fsData.data;
-            setInLookupCache(normalizedName, nameData);
-          }
-        }
-      } catch (e) {
-        console.warn('Firestore renderNameHtml lookup notice:', e);
-      }
-    }
-  }
-
-  // 4. Fallback to procedural fallback generator if still null
-  if (!nameData) {
-    nameData = findFallbackName(cleanName);
-  }
-
-  const title = `${cleanName} — Name Meaning, Origin & Custom Acrostic Poem | The Page of You`;
-  const description = `Discover the origin, cultural history, meaning, and bespoke acrostic poem for "${cleanName}". Create personalized poems, gifts, and explore verified quotes across literature, music, and film.`;
-  const canonicalUrl = `https://thepageofyou.com/name/${encodeURIComponent(cleanName.toLowerCase())}`;
-  const ogImageUrl = `https://thepageofyou.com/api/og-image/${encodeURIComponent(cleanName.toLowerCase())}`;
-  
-  // Format Acrostic for Schema / Meta
-  const acrosticLines = nameData.acrostic || [];
-  const acrosticFormatted = acrosticLines.map((a: any) => `${a.letter}: ${a.line}`).join('. ');
-
-  const jsonLdSchema = {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "WebApplication",
-        "name": "The Page of You",
-        "url": "https://thepageofyou.com",
-        "applicationCategory": "LifestyleApplication",
-        "description": "Personalised name origins, custom acrostic poetry generator, and cultural archives.",
-        "operatingSystem": "All"
-      },
-      {
-        "@type": "CreativeWork",
-        "name": `The Acrostic Poem & Cultural Meaning of ${cleanName}`,
-        "headline": `Name Origin, History & Poetry for ${cleanName}`,
-        "description": description,
-        "author": {
-          "@type": "Organization",
-          "name": "The Page of You",
-          "url": "https://thepageofyou.com"
-        },
-        "url": canonicalUrl,
-        "about": {
-          "@type": "Thing",
-          "name": cleanName,
-          "description": nameData.meaning || `Meaning and origin of the name ${cleanName}`
-        }
-      },
-      {
-        "@type": "FAQPage",
-        "mainEntity": [
-          {
-            "@type": "Question",
-            "name": `What is the origin and meaning of the name ${cleanName}?`,
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": `The name ${cleanName} originates from ${nameData.origin || 'historical culture'} and signifies "${nameData.meaning || 'noble and cherished'}".`
-            }
-          },
-          {
-            "@type": "Question",
-            "name": `What is an acrostic poem for ${cleanName}?`,
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": acrosticFormatted || `A personalized acrostic poem highlighting the qualities of ${cleanName}.`
-            }
-          }
-        ]
-      }
-    ]
-  };
-
-  let html = templateHtml;
-
-  // Replace Title
-  html = html.replace(/<title>.*?<\/title>/i, `<title>${title}</title>`);
-  
-  // Replace Meta Name Title
-  html = html.replace(/<meta\s+name="title"\s+content=".*?"\s*\/?>/i, `<meta name="title" content="${title}" />`);
-  
-  // Replace Meta Description
-  html = html.replace(/<meta\s+name="description"\s+content=".*?"\s*\/?>/i, `<meta name="description" content="${description}" />`);
-  
-  // Replace Canonical Link
-  html = html.replace(/<link\s+rel="canonical"\s+href=".*?"\s*\/?>/i, `<link rel="canonical" href="${canonicalUrl}" />`);
-  
-  // Replace Open Graph Tags
-  html = html.replace(/<meta\s+property="og:title"\s+content=".*?"\s*\/?>/i, `<meta property="og:title" content="${title}" />`);
-  html = html.replace(/<meta\s+property="og:description"\s+content=".*?"\s*\/?>/i, `<meta property="og:description" content="${description}" />`);
-  html = html.replace(/<meta\s+property="og:url"\s+content=".*?"\s*\/?>/i, `<meta property="og:url" content="${canonicalUrl}" />`);
-  html = html.replace(/<meta\s+property="og:image"\s+content=".*?"\s*\/?>/i, `<meta property="og:image" content="${ogImageUrl}" />`);
-  html = html.replace(/<meta\s+property="og:image:type"\s+content=".*?"\s*\/?>/i, `<meta property="og:image:type" content="image/svg+xml" />`);
-  
-  // Replace Twitter Tags
-  html = html.replace(/<meta\s+name="twitter:title"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:title" content="${title}" />`);
-  html = html.replace(/<meta\s+name="twitter:description"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:description" content="${description}" />`);
-  html = html.replace(/<meta\s+name="twitter:image"\s+content=".*?"\s*\/?>/i, `<meta name="twitter:image" content="${ogImageUrl}" />`);
-
-  // Semantic NOSCRIPT block for search engine crawlers without JavaScript
-  const acrosticHtmlList = acrosticLines
-    .map((a: any) => `<li style="margin-bottom:8px;font-size:16px;"><strong>${a.letter}</strong> &mdash; <em>${a.line}</em></li>`)
-    .join('');
-
-  const booksHtml = (nameData.books && nameData.books.length > 0)
-    ? `<section style="margin-top:20px;"><h3 style="font-size:18px;margin-bottom:6px;">Literature</h3><p>&ldquo;${nameData.books[0].quote}&rdquo; &mdash; <em>${nameData.books[0].title}</em> by ${nameData.books[0].author}</p></section>`
-    : '';
-
-  const songsHtml = (nameData.songs && nameData.songs.length > 0)
-    ? `<section style="margin-top:16px;"><h3 style="font-size:18px;margin-bottom:6px;">Music</h3><p>&ldquo;${nameData.songs[0].quote}&rdquo; &mdash; <em>${nameData.songs[0].title}</em> by ${nameData.songs[0].artist}</p></section>`
-    : '';
-
-  const crawlerNoscript = `
-    <noscript id="seo-crawler-content">
-      <main style="font-family:Georgia,serif;max-width:820px;margin:40px auto;padding:24px;color:#1c1917;background-color:#faf9f6;line-height:1.6;">
-        <h1 style="font-size:32px;font-weight:bold;margin-bottom:8px;">${cleanName} &mdash; Meaning, Origin &amp; Acrostic Poem</h1>
-        <p style="font-style:italic;font-size:18px;color:#57534e;margin-bottom:20px;">Origin: ${nameData.origin || 'Cultural Heritage'} &bull; Meaning: &ldquo;${nameData.meaning}&rdquo;</p>
-        <section style="margin-bottom:28px;">
-          <h2 style="font-size:20px;font-weight:bold;border-bottom:1px solid #e7e5e4;padding-bottom:6px;margin-bottom:12px;">Acrostic Poem for ${cleanName}</h2>
-          <ul style="list-style-type:none;padding-left:0;">${acrosticHtmlList}</ul>
-        </section>
-        ${booksHtml}
-        ${songsHtml}
-      </main>
-    </noscript>
-  `;
-
-  // Inject Preloaded Server Data and JSON-LD schema
-  const serializedPreload = JSON.stringify(nameData).replace(/</g, '\\u003c');
-  const serializedSchema = JSON.stringify(jsonLdSchema).replace(/</g, '\\u003c');
-
-  const headInjection = `
-    <!-- Programmatic SEO Schema & Preloaded Initial State -->
-    <script type="application/ld+json">${serializedSchema}</script>
-    <script>
-      window.__PRELOADED_NAME_DATA__ = ${serializedPreload};
-      window.__PRELOADED_NAME__ = ${JSON.stringify(cleanName)};
-    </script>
-  `;
-
-  html = html.replace('</head>', `${headInjection}\n</head>`);
-  html = html.replace('<div id="root"></div>', `<div id="root">${crawlerNoscript}</div>`);
-  return html;
+  console.log(
+    `[Cache Warmup] Pre-warmed in-memory cache with ${Object.keys(POPULAR_NAMES_DATA).length} curated entries.`
+  );
 }
 
 async function startServer() {
-  const indexHtmlPath = process.env.NODE_ENV !== 'production'
-    ? path.join(process.cwd(), 'index.html')
-    : path.join(process.cwd(), 'dist', 'index.html');
+  const isProd = process.env.NODE_ENV === 'production';
+  const indexHtmlPath = isProd
+    ? path.join(process.cwd(), 'dist', 'index.html')
+    : path.join(process.cwd(), 'index.html');
 
-  // Dedicated SEO landing page route for /name/:nameSlug
+  let viteDevServer: any = null;
+  if (!isProd) {
+    viteDevServer = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+  }
+
+  async function loadTemplateHtml(originalUrl: string): Promise<string> {
+    let rawHtml = fs.readFileSync(indexHtmlPath, 'utf-8');
+    if (!isProd && viteDevServer) {
+      rawHtml = await viteDevServer.transformIndexHtml(originalUrl, rawHtml);
+    }
+    return rawHtml;
+  }
+
+  // Canonical 301 redirect for any trailing slash on GET routes (e.g. /names/ -> /names, /name/eleanor/ -> /name/eleanor)
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && req.path.length > 1 && req.path.endsWith('/')) {
+      const stripped = req.path.replace(/\/+$/, '');
+      const nameMatch = stripped.match(/^\/name\/([^/]+)$/i);
+      if (nameMatch && nameMatch[1]) {
+        const decoded = safeDecodeURIComponent(nameMatch[1]).trim();
+        return res.redirect(301, decoded ? `/name/${getNameSlug(decoded)}` : '/names');
+      }
+      const query = req.originalUrl.slice(req.path.length);
+      return res.redirect(301, `${stripped}${query}`);
+    }
+    return next();
+  });
+
+  // Canonical 301 Redirect: /?name=Eleanor -> /name/eleanor
+  // Real SSR Homepage on /
+  app.get('/', async (req, res, next) => {
+    try {
+      const queryName = typeof req.query.name === 'string' ? req.query.name.trim() : '';
+      if (queryName && isValidNameInput(queryName).valid) {
+        return res.redirect(301, `/name/${getNameSlug(queryName)}`);
+      }
+
+      const templateHtml = await loadTemplateHtml(req.originalUrl);
+      const renderedHtml = renderHomeHtml(templateHtml);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.send(renderedHtml);
+    } catch (err) {
+      console.error('Error rendering homepage:', err);
+      return next();
+    }
+  });
+
+  // Real SSR Browse Names A-Z Directory (/names)
+  app.get('/names', async (req, res, next) => {
+    try {
+      const indexableNames = await collectIndexableNames();
+      const templateHtml = await loadTemplateHtml(req.originalUrl);
+      const renderedHtml = renderDirectoryHtml(templateHtml, indexableNames);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+      return res.send(renderedHtml);
+    } catch (err) {
+      console.error('Error rendering directory page:', err);
+      return next();
+    }
+  });
+
+  // Real SSR Thematic Hub: Songs With Names (/songs-with-names)
+  app.get('/songs-with-names', async (req, res, next) => {
+    try {
+      const templateHtml = await loadTemplateHtml(req.originalUrl);
+      const renderedHtml = renderSongsHubHtml(templateHtml);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+      return res.send(renderedHtml);
+    } catch (err) {
+      console.error('Error rendering songs hub page:', err);
+      return next();
+    }
+  });
+
+  // Real SSR Thematic Hub: Acrostic Name Poems (/acrostic-name-poems)
+  app.get('/acrostic-name-poems', async (req, res, next) => {
+    try {
+      const templateHtml = await loadTemplateHtml(req.originalUrl);
+      const renderedHtml = renderAcrosticHubHtml(templateHtml);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+      return res.send(renderedHtml);
+    } catch (err) {
+      console.error('Error rendering acrostic poems hub page:', err);
+      return next();
+    }
+  });
+
+  // Real SSR Individual Name Page (/name/:nameSlug)
   app.get('/name/:nameSlug', async (req, res, next) => {
     try {
-      const rawSlug = req.params.nameSlug;
-      if (!rawSlug || rawSlug.trim() === '') {
-        return next();
+      const rawParam = req.params.nameSlug;
+      if (!rawParam || !rawParam.trim()) {
+        return res.redirect(301, '/names');
       }
 
-      const cleanName = decodeURIComponent(rawSlug).trim();
-      let rawHtml = fs.readFileSync(indexHtmlPath, 'utf-8');
+      const decodedName = safeDecodeURIComponent(rawParam).trim();
+      if (!decodedName) {
+        return res.redirect(301, '/names');
+      }
+      const canonicalSlug = getNameSlug(decodedName);
 
-      if (process.env.NODE_ENV !== 'production' && viteDevServer) {
-        rawHtml = await viteDevServer.transformIndexHtml(req.originalUrl, rawHtml);
+      // 301 redirect uppercase or unnormalized variants (e.g. /name/Eleanor -> /name/eleanor)
+      if (req.path !== `/name/${canonicalSlug}`) {
+        return res.redirect(301, `/name/${canonicalSlug}`);
       }
 
-      const renderedHtml = await renderNameHtml(rawHtml, cleanName);
+      const { data: nameData, isResolved } = await resolveCachedOrCuratedName(decodedName);
+      const templateHtml = await loadTemplateHtml(req.originalUrl);
+      const renderedHtml = renderNameHtml(templateHtml, nameData, decodedName, isResolved);
+
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800');
+      if (isResolved) {
+        // Short safe CDN cache so fresh Vite hashed bundles never break after redeploy
+        res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+      } else {
+        // Never cache uncached/fallback pages!
+        res.setHeader('Cache-Control', 'no-store');
+      }
       return res.send(renderedHtml);
     } catch (err) {
       console.error('Error rendering name page:', err);
@@ -1179,37 +1369,40 @@ async function startServer() {
     }
   });
 
-  let viteDevServer: any = null;
-  if (process.env.NODE_ENV !== 'production') {
-    viteDevServer = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
+  if (!isProd && viteDevServer) {
     app.use(viteDevServer.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath, {
-      maxAge: '1y',
-      immutable: true,
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith('.html')) {
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-          res.setHeader('Pragma', 'no-cache');
-          res.setHeader('Expires', '0');
-        } else {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-          res.setHeader('Expires', new Date(Date.now() + 31536000000).toUTCString());
-        }
-      },
-    }));
-    app.get('*', (req, res) => {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.use(
+      express.static(distPath, {
+        index: false, // Ensure '/' is handled by our SSR route above
+        maxAge: '1y',
+        immutable: true,
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+          } else {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
+
+    // Fallback for unknown routes: render homepage shell with 404 or SPA fallback
+    app.get('*', async (req, res) => {
+      try {
+        const templateHtml = await loadTemplateHtml(req.originalUrl);
+        res.status(404).setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.send(renderHomeHtml(templateHtml));
+      } catch {
+        res.status(404).sendFile(path.join(distPath, 'index.html'));
+      }
     });
   }
 
-  // Pre-warm cache for popular names on server boot
-  prewarmCache().catch((err) => console.warn('Prewarm failed:', err));
+  prewarmInMemoryCache();
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://localhost:${PORT}`);

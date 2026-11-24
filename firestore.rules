@@ -1,18 +1,58 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /popular_names/{document=**} {
+    // Helper: case-insensitive validation to block URLs, HTML, and script injection
+    function isValidNameString(val) {
+      return val is string
+             && val.size() >= 2
+             && val.size() <= 40
+             && !val.matches('(?i).*(http|www\\.|<|>|script|javascript:).*');
+    }
+
+    match /popular_names/{docId} {
       allow read: if true;
-      allow create, update: if request.resource.data.name is string
-                            && request.resource.data.name.size() > 0
-                            && request.resource.data.name.size() <= 100;
+      allow create: if docId.size() >= 2
+                    && docId.size() <= 40
+                    && isValidNameString(request.resource.data.name)
+                    && request.resource.data.keys().hasOnly(['name', 'searchCount', 'featured', 'lastSearchedAt'])
+                    && (!('searchCount' in request.resource.data) || (request.resource.data.searchCount is int && request.resource.data.searchCount == 1))
+                    && (!('featured' in request.resource.data) || request.resource.data.featured == false);
+      allow update: if docId.size() >= 2
+                    && docId.size() <= 40
+                    && isValidNameString(request.resource.data.name)
+                    && request.resource.data.keys().hasOnly(['name', 'searchCount', 'featured', 'lastSearchedAt'])
+                    && request.resource.data.name == resource.data.name
+                    && (!('featured' in request.resource.data) || request.resource.data.featured == resource.data.featured)
+                    && request.resource.data.searchCount is int
+                    && resource.data.searchCount is int
+                    && request.resource.data.searchCount == resource.data.searchCount + 1;
       allow delete: if false;
     }
-    match /name_cache/{document=**} {
+
+    match /name_cache/{docId} {
       allow read: if true;
-      allow create, update: if request.resource.data.name is string
-                            && request.resource.data.name.size() > 0
-                            && request.resource.data.name.size() <= 100;
+      allow create: if docId.size() >= 2
+                    && docId.size() <= 40
+                    && isValidNameString(request.resource.data.name)
+                    && request.resource.data.data is map
+                    && request.resource.data.data.keys().hasOnly(['name', 'meaning', 'origin', 'adjectives', 'acrostic', 'books', 'songs', 'movies', 'games', 'art', 'source'])
+                    && request.resource.data.data.meaning is string
+                    && request.resource.data.data.meaning.size() >= 3
+                    && request.resource.data.data.meaning.size() <= 300
+                    && request.resource.data.schemaVersion is int
+                    && request.resource.data.schemaVersion >= 3
+                    && request.resource.data.keys().hasOnly(['name', 'data', 'searchCount', 'lastSearchedAt', 'createdAt', 'schemaVersion']);
+      allow update: if docId.size() >= 2
+                    && docId.size() <= 40
+                    && isValidNameString(request.resource.data.name)
+                    && request.resource.data.name == resource.data.name
+                    && request.resource.data.data is map
+                    && request.resource.data.data.keys().hasOnly(['name', 'meaning', 'origin', 'adjectives', 'acrostic', 'books', 'songs', 'movies', 'games', 'art', 'source'])
+                    && request.resource.data.data.meaning == resource.data.data.meaning
+                    && request.resource.data.data.origin == resource.data.data.origin
+                    && request.resource.data.schemaVersion is int
+                    && request.resource.data.schemaVersion >= resource.data.schemaVersion
+                    && request.resource.data.keys().hasOnly(['name', 'data', 'searchCount', 'lastSearchedAt', 'createdAt', 'schemaVersion']);
       allow delete: if false;
     }
   }

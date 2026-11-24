@@ -13,6 +13,10 @@ import {
   LayoutGrid,
   SlidersHorizontal,
   Loader2,
+  CheckCircle2,
+  Info,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import { BookQuote, SongQuote, MovieQuote, GameQuote, ArtQuote } from '../types';
 import {
@@ -33,6 +37,12 @@ interface QuoteSectionProps {
   onEnrichCategory?: (category: 'books' | 'songs' | 'movies' | 'games' | 'art' | 'all') => Promise<void>;
   isEnriching?: boolean;
   enrichingCategory?: 'books' | 'songs' | 'movies' | 'games' | 'art' | 'all' | null;
+  enrichStatus?: {
+    category: 'books' | 'songs' | 'movies' | 'games' | 'art' | 'all';
+    type: 'success' | 'info' | 'error';
+    message: string;
+  } | null;
+  onDismissEnrichStatus?: () => void;
 }
 
 interface CarouselCategoryProps<T> {
@@ -220,8 +230,14 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
   onEnrichCategory,
   isEnriching = false,
   enrichingCategory = null,
+  enrichStatus = null,
+  onDismissEnrichStatus,
 }) => {
   const [activeTab, setActiveTab] = useState<'all' | 'books' | 'songs' | 'movies' | 'games' | 'art'>('all');
+
+  useEffect(() => {
+    setActiveTab('all');
+  }, [personName]);
 
   const totalMediaCount = books.length + songs.length + movies.length + games.length + art.length;
 
@@ -304,6 +320,41 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
         </div>
       </div>
 
+      {enrichStatus && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mb-5 px-4 py-3 rounded-xl border text-xs sm:text-sm font-medium flex items-center justify-between gap-3 shadow-2xs ${
+            enrichStatus.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : enrichStatus.type === 'error'
+              ? 'bg-rose-50 border-rose-200 text-rose-900'
+              : 'bg-amber-50 border-amber-200 text-amber-900'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {enrichStatus.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+            ) : enrichStatus.type === 'error' ? (
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+            ) : (
+              <Info className="w-4 h-4 shrink-0 text-amber-600" />
+            )}
+            <span>{enrichStatus.message}</span>
+          </div>
+          {onDismissEnrichStatus && (
+            <button
+              type="button"
+              onClick={onDismissEnrichStatus}
+              aria-label="Dismiss status message"
+              className="p-1 rounded-lg opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="space-y-6 sm:space-y-8">
         {/* NO MEDIA FOUND FOR UNCOMMON NAME */}
         {totalMediaCount === 0 && (
@@ -367,7 +418,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
                   <a
                     href={getAmazonBookUrl(book.title, book.author)}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900 hover:text-amber-700 bg-amber-100/70 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg border border-amber-300/60 transition-colors"
                   >
                     <ShoppingBag className="w-3.5 h-3.5 text-amber-800" />
@@ -427,7 +478,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
                   <a
                     href={getAmazonMusicUrl(song.title, song.artist)}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-900 hover:text-emerald-700 bg-emerald-100/70 hover:bg-emerald-100 px-2.5 py-1.5 rounded-lg border border-emerald-300/60 transition-colors"
                   >
                     <ShoppingBag className="w-3.5 h-3.5 text-emerald-800" />
@@ -482,7 +533,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
                   <a
                     href={getAmazonMovieUrl(movie.title)}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-900 hover:text-sky-700 bg-sky-100/70 hover:bg-sky-100 px-2.5 py-1.5 rounded-lg border border-sky-300/60 transition-colors"
                   >
                     <ShoppingBag className="w-3.5 h-3.5 text-sky-800" />
@@ -537,7 +588,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
                   <a
                     href={getAmazonGameUrl(game.title)}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-900 hover:text-violet-700 bg-violet-100/70 hover:bg-violet-100 px-2.5 py-1.5 rounded-lg border border-violet-300/60 transition-colors"
                   >
                     <ShoppingBag className="w-3.5 h-3.5 text-violet-800" />
@@ -590,7 +641,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
                   <a
                     href={getAmazonArtUrl(item.title, item.artist)}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-900 hover:text-rose-700 bg-rose-100/70 hover:bg-rose-100 px-2.5 py-1.5 rounded-lg border border-rose-300/60 transition-colors"
                   >
                     <ShoppingBag className="w-3.5 h-3.5 text-rose-800" />

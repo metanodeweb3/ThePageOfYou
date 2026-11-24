@@ -26,10 +26,11 @@ export const AcrosticPoem: React.FC<AcrosticPoemProps> = ({
   const handleCopy = () => {
     if (!acrostic) return;
     const poemText = acrostic.map((a) => `${a.letter}: ${a.line}`).join('\n');
+    const slug = encodeURIComponent(name.trim().toLowerCase());
     const siteUrl = window.location.hostname.includes('thepageofyou.com')
-      ? window.location.href
-      : `https://thepageofyou.com?name=${encodeURIComponent(name)}`;
-    const fullText = `Acrostic Poem for ${name}:\n\n${poemText}\n\nMeaning: ${meaning}\n\nDiscover yours at https://thepageofyou.com`;
+      ? `${window.location.origin}/name/${slug}`
+      : `https://thepageofyou.com/name/${slug}`;
+    const fullText = `Acrostic Poem for ${name}:\n\n${poemText}\n\nMeaning: ${meaning}\n\nExplore ${name}'s full etymology & cultural archive: ${siteUrl}`;
     navigator.clipboard.writeText(fullText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -66,11 +67,11 @@ export const AcrosticPoem: React.FC<AcrosticPoemProps> = ({
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-amber-950/80 text-amber-300 border border-amber-800/60 text-[11px] sm:text-xs font-semibold mb-2">
               <Feather className="w-3.5 h-3.5" />
-              <span>Personalized Acrostic Verse</span>
+              <span>Personalised Acrostic Verse</span>
             </div>
-            <h3 className="text-xl sm:text-2xl md:text-3xl font-serif font-bold text-white tracking-tight">
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-serif font-bold text-white tracking-tight">
               The Acrostic Poem of {name}
-            </h3>
+            </h2>
             <p className="text-xs text-stone-400 mt-1 leading-normal">
               Etymology: <span className="text-amber-200 font-medium">{meaning}</span> {origin ? `(${origin})` : ''}
             </p>

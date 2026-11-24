@@ -44,7 +44,7 @@ export const ShareBanner: React.FC<ShareBannerProps> = ({
               Share {data.name}'s Cultural Page
             </h3>
             <p className="text-xs sm:text-sm text-stone-300 max-w-xl leading-relaxed">
-              Generate a personalized image card featuring <span className="text-amber-200 font-semibold">{data.name}'s</span> meaning, top literature, music, and film references to send to friends or share on social media.
+              Generate a personalised image card featuring <span className="text-amber-200 font-semibold">{data.name}&rsquo;s</span> meaning, top literature, music, and film references to send to friends or share on social media.
             </p>
           </div>
         </div>

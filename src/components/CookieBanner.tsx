@@ -29,10 +29,24 @@ export const CookieBanner: React.FC<CookieBannerProps> = ({
   const handleConsent = (level: 'accepted' | 'essential') => {
     localStorage.setItem('privacy_consent', level);
     localStorage.setItem('privacy_consent_date', new Date().toISOString());
+    const win = window as unknown as Record<string, any>;
     if (level === 'essential') {
-      (window as unknown as Record<string, boolean>)['ga-disable-G-J6Z2KSYKN5'] = true;
+      win['ga-disable-G-J6Z2KSYKN5'] = true;
+      if (typeof win.gtag === 'function') {
+        win.gtag('consent', 'update', {
+          analytics_storage: 'denied',
+          ad_storage: 'denied',
+          ad_user_data: 'denied',
+          ad_personalization: 'denied',
+        });
+      }
     } else {
-      (window as unknown as Record<string, boolean>)['ga-disable-G-J6Z2KSYKN5'] = false;
+      win['ga-disable-G-J6Z2KSYKN5'] = false;
+      if (typeof win.gtag === 'function') {
+        win.gtag('consent', 'update', {
+          analytics_storage: 'granted',
+        });
+      }
     }
     setIsVisible(false);
     if (onDismissForceShow) {

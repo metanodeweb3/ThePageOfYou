@@ -84,11 +84,7 @@ export function soundex(str: string): string {
 const COMMON_ALIASES: Record<string, string> = {
   nacho: 'nacho',
   ignacio: 'nacho',
-  johnny: 'john',
-  jon: 'john',
-  jack: 'john',
   dali: 'dali',
-  salvador: 'dali',
   'salvador dali': 'dali',
   beethoven: 'beethoven',
   'ludwig van beethoven': 'beethoven',
@@ -109,6 +105,19 @@ const COMMON_ALIASES: Record<string, string> = {
   dan: 'daniel',
   ally: 'alice',
   ali: 'alice',
+  alex: 'alexander',
+  ben: 'benjamin',
+  sam: 'samuel',
+  will: 'william',
+  tom: 'thomas',
+  theo: 'theodore',
+  kate: 'katherine',
+  katie: 'katherine',
+  kathy: 'katherine',
+  penny: 'penelope',
+  zach: 'zachary',
+  zack: 'zachary',
+  zoey: 'zoe',
 };
 
 /**
@@ -123,21 +132,22 @@ export function findFallbackName(query: string): PersonNameData {
     return generateDynamicNameData('Friend');
   }
 
-  // 1. Exact or Direct Alias Match
-  const aliasKey = COMMON_ALIASES[lower] || COMMON_ALIASES[normalized];
-  if (aliasKey && POPULAR_NAMES_DATA[aliasKey]) {
-    return {
-      ...POPULAR_NAMES_DATA[aliasKey],
-      name: clean,
-    };
-  }
-
+  // 1. Direct exact curated match FIRST (prevents aliases from shadowing curated names like Jack)
   if (POPULAR_NAMES_DATA[normalized]) {
     return POPULAR_NAMES_DATA[normalized];
   }
 
   if (POPULAR_NAMES_DATA[lower]) {
     return POPULAR_NAMES_DATA[lower];
+  }
+
+  // 2. Direct Alias Match
+  const aliasKey = COMMON_ALIASES[lower] || COMMON_ALIASES[normalized];
+  if (aliasKey && POPULAR_NAMES_DATA[aliasKey]) {
+    return {
+      ...POPULAR_NAMES_DATA[aliasKey],
+      name: clean,
+    };
   }
 
   // 2. High-confidence minor typo check for curated names (Levenshtein = 1 on longer names)

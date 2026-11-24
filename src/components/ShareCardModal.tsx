@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { X, Copy, Check, Download, Share2, Sparkles, Image as ImageIcon, SlidersHorizontal, BookOpen, Music, Film, Gamepad2, Palette, Paintbrush } from 'lucide-react';
 import { PersonNameData, BookQuote, SongQuote, MovieQuote, GameQuote, ArtQuote } from '../types';
 import { SHARE_CARD_THEMES, ShareCardTheme } from '../lib/cardThemes';
+import { stripOuterQuotes } from '../utils/seo';
 
 interface ShareCardModalProps {
   data: PersonNameData;
@@ -61,7 +62,7 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
   const shareUrl = window.location.hostname.includes('thepageofyou.com') 
     ? `${window.location.origin}/name/${safeSlug}` 
     : `https://thepageofyou.com/name/${safeSlug}`;
-  const shareText = `Check out my personalized cultural page for "${data.name}" on The Page of You! 📖🎵🎬🎮🎨`;
+  const shareText = `Check out my personalised cultural page for "${data.name}" on The Page of You! 📖🎵🎬🎮🎨`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
@@ -103,35 +104,35 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
         category: 'LITERATURE',
         headerColor: currentTheme.canvasHeaderColors.book,
         title: selectedBook.title.toUpperCase(),
-        quote: `“${selectedBook.quote}”`,
+        quote: `“${stripOuterQuotes(selectedBook.quote)}”`,
         byline: `— ${selectedBook.author} (${selectedBook.year || 'Classic'})`,
       } : null,
       selectedSong ? {
         category: 'MUSIC',
         headerColor: currentTheme.canvasHeaderColors.song,
         title: `"${selectedSong.title.toUpperCase()}" BY ${selectedSong.artist.toUpperCase()}`,
-        quote: `“${selectedSong.lyricsQuote}”`,
+        quote: `“${stripOuterQuotes(selectedSong.lyricsQuote)}”`,
         byline: `Vibe: ${selectedSong.albumVibe || 'Timeless Melody'}`,
       } : null,
       selectedMovie ? {
         category: 'CINEMA',
         headerColor: currentTheme.canvasHeaderColors.movie,
         title: selectedMovie.title.toUpperCase(),
-        quote: `“${selectedMovie.quote}”`,
+        quote: `“${stripOuterQuotes(selectedMovie.quote)}”`,
         byline: `— Spoken by ${selectedMovie.character || selectedMovie.actor || 'Iconic Character'} ${selectedMovie.year ? `(${selectedMovie.year})` : ''}`,
       } : null,
       selectedGame ? {
         category: 'VIDEO GAME',
         headerColor: currentTheme.canvasHeaderColors.game,
         title: selectedGame.title.toUpperCase(),
-        quote: `“${selectedGame.quote}”`,
+        quote: `“${stripOuterQuotes(selectedGame.quote)}”`,
         byline: `— ${selectedGame.character || selectedGame.developer || 'Iconic Character'}`,
       } : null,
       selectedArt ? {
         category: 'FINE ART',
         headerColor: currentTheme.canvasHeaderColors.art,
         title: selectedArt.title.toUpperCase(),
-        quote: `“${selectedArt.quote}”`,
+        quote: `“${stripOuterQuotes(selectedArt.quote)}”`,
         byline: `— ${selectedArt.artist} (${selectedArt.year || 'Masterpiece'})`,
       } : null,
     ].filter(Boolean) as { category: string; headerColor: string; title: string; quote: string; byline: string }[];
@@ -603,7 +604,7 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
             {selectedBook && (
               <div className={`p-3 rounded-xl border text-left text-xs transition-all ${currentTheme.previewCardBg}`}>
                 <span className={`font-bold uppercase tracking-wider text-[10px] ${currentTheme.previewHeaderColors.book}`}>Featured Book Quote</span>
-                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>"{selectedBook.quote}"</p>
+                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>&ldquo;{stripOuterQuotes(selectedBook.quote)}&rdquo;</p>
                 <p className={`font-sans text-[11px] ${currentTheme.previewBylineText}`}>— {selectedBook.author}, <i>{selectedBook.title}</i></p>
               </div>
             )}
@@ -611,7 +612,7 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
             {selectedSong && (
               <div className={`p-3 rounded-xl border text-left text-xs transition-all ${currentTheme.previewCardBg}`}>
                 <span className={`font-bold uppercase tracking-wider text-[10px] ${currentTheme.previewHeaderColors.song}`}>Featured Song Lyric</span>
-                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>"{selectedSong.lyricsQuote}"</p>
+                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>&ldquo;{stripOuterQuotes(selectedSong.lyricsQuote)}&rdquo;</p>
                 <p className={`font-sans text-[11px] ${currentTheme.previewBylineText}`}>— {selectedSong.artist}, <i>"{selectedSong.title}"</i></p>
               </div>
             )}
@@ -619,7 +620,7 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
             {selectedMovie && (
               <div className={`p-3 rounded-xl border text-left text-xs transition-all ${currentTheme.previewCardBg}`}>
                 <span className={`font-bold uppercase tracking-wider text-[10px] ${currentTheme.previewHeaderColors.movie}`}>Featured Cinema Quote</span>
-                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>"{selectedMovie.quote}"</p>
+                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>&ldquo;{stripOuterQuotes(selectedMovie.quote)}&rdquo;</p>
                 <p className={`font-sans text-[11px] ${currentTheme.previewBylineText}`}>— {selectedMovie.character || selectedMovie.actor || 'Character'}, <i>"{selectedMovie.title}"</i> {selectedMovie.year ? `(${selectedMovie.year})` : ''}</p>
               </div>
             )}
@@ -627,7 +628,7 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
             {selectedGame && (
               <div className={`p-3 rounded-xl border text-left text-xs transition-all ${currentTheme.previewCardBg}`}>
                 <span className={`font-bold uppercase tracking-wider text-[10px] ${currentTheme.previewHeaderColors.game}`}>Featured Video Game Quote</span>
-                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>"{selectedGame.quote}"</p>
+                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>&ldquo;{stripOuterQuotes(selectedGame.quote)}&rdquo;</p>
                 <p className={`font-sans text-[11px] ${currentTheme.previewBylineText}`}>— {selectedGame.character || selectedGame.developer}, <i>"{selectedGame.title}"</i></p>
               </div>
             )}
@@ -635,7 +636,7 @@ export const ShareCardModal: React.FC<ShareCardModalProps> = ({
             {selectedArt && (
               <div className={`p-3 rounded-xl border text-left text-xs transition-all ${currentTheme.previewCardBg}`}>
                 <span className={`font-bold uppercase tracking-wider text-[10px] ${currentTheme.previewHeaderColors.art}`}>Featured Fine Art Quote</span>
-                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>"{selectedArt.quote}"</p>
+                <p className={`font-serif italic my-1 ${currentTheme.previewCardText}`}>&ldquo;{stripOuterQuotes(selectedArt.quote)}&rdquo;</p>
                 <p className={`font-sans text-[11px] ${currentTheme.previewBylineText}`}>— {selectedArt.artist}, <i>"{selectedArt.title}"</i></p>
               </div>
             )}

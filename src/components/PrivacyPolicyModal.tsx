@@ -44,7 +44,7 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 Privacy Policy & Cookie Notice
               </h2>
               <p className="text-xs text-stone-400">
-                The Page of You (thepageofyou.com) • Last updated: August 2026
+                The Page of You (thepageofyou.com) • Last updated: November 2026
               </p>
             </div>
           </div>
@@ -85,13 +85,13 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
                 <strong>Name Searches & Preferences:</strong> Your searched names and custom card customisations are saved locally in your browser's <code className="bg-stone-800 px-1.5 py-0.5 rounded text-amber-200">localStorage</code>.
               </li>
               <li>
-                <strong>User-Generated Keepsakes:</strong> If you explicitly share or save a custom poem, acrostic, or graphics card, the card payload may be stored securely in our Firebase Firestore database to enable direct URL sharing.
+                <strong>Cached Name Archives:</strong> When a previously unarchived name is searched, its public cultural references and acrostic verse may be cached in our Firebase Firestore database so future visitors receive instant results.
               </li>
               <li>
-                <strong>Analytics & Performance Data:</strong> We use Google Analytics to gather aggregated, anonymous statistics about site visitors (such as traffic counts, page views, and general geographic region) to improve site performance and content.
+                <strong>Analytics &amp; Performance Data:</strong> We use Google Analytics (with UK GDPR Consent Mode v2 defaulting to denied until you accept) to gather aggregated, anonymised statistics about site visitors to improve site performance and content.
               </li>
               <li>
-                <strong>Technical Logs:</strong> Standard web server logs (IP address, browser type, referring page) are automatically captured for operational security and fraud prevention.
+                <strong>Technical Logs:</strong> Standard web server logs (IP address, browser type, referring page) are automatically captured for operational security and abuse prevention.
               </li>
             </ul>
           </section>
@@ -100,18 +100,18 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({
           <section className="space-y-2">
             <div className="flex items-center gap-2 text-amber-300 font-semibold text-base font-serif">
               <Cookie className="w-4 h-4" />
-              <h3>3. Cookies & Local Storage</h3>
+              <h3>3. Cookies &amp; Local Storage</h3>
             </div>
             <p>
-              We use essential local storage keys to deliver core site functionality (such as keeping track of your recent searches and storing your privacy preferences) and performance cookies to understand site usage.
+              We use essential local storage keys to deliver core site functionality (such as remembering your privacy preferences) and optional analytics cookies only with your consent.
             </p>
             <div className="bg-stone-950/60 p-3.5 rounded-xl border border-stone-800/80 text-xs space-y-2">
               <div className="font-semibold text-amber-200">Types of Storage Used:</div>
               <p>
-                <strong>Essential Storage:</strong> Local storage items used to remember your cookie consent choice and saved favorite names.
+                <strong>Essential Storage:</strong> Local storage items used to remember your cookie consent choice and saved favourite names.
               </p>
               <p>
-                <strong>Analytics Cookies (Google Analytics):</strong> Standard cookies (e.g. <code>_ga</code>) set by Google Analytics to help us analyze website traffic and visitor interactions in an anonymized manner.
+                <strong>Analytics Cookies (Google Analytics):</strong> Standard cookies (e.g. <code>_ga</code>) set by Google Analytics only if you accept analytics, helping us analyse website traffic in an anonymised manner.
               </p>
               <p>
                 <strong>Affiliate Cookies (Amazon):</strong> When you click on book, song, or film product recommendations on our site, you may be redirected to Amazon via affiliate links. Amazon uses cookies to track qualifying purchases and credit affiliate commissions as detailed in our Affiliate Disclosure.

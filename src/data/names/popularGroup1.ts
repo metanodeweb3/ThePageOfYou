@@ -600,7 +600,7 @@ export const POPULAR_GROUP_1: Record<string, PersonNameData> = {
       { letter: 'N', line: 'Noble heart dancing with wild grace' },
       { letter: 'N', line: 'Nurturing magic in every quiet gesture' },
       { letter: 'O', line: 'One of a kind, a starlight dream' },
-      { letter: 'R', line: 'Royal soul destined for greatness' },
+      { letter: 'N', line: 'Naturally regal soul destined for greatness' },
     ],
     books: [
       {

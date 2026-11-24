@@ -22,9 +22,6 @@ export default defineConfig(() => {
               if (id.includes('lucide-react')) {
                 return 'vendor-icons';
               }
-              if (id.includes('motion')) {
-                return 'vendor-motion';
-              }
               if (id.includes('firebase')) {
                 return 'vendor-firebase';
               }
