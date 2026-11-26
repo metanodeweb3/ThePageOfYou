@@ -154,7 +154,7 @@ export const NameFaqAndRelated: React.FC<NameFaqAndRelatedProps> = ({ data, onNa
             </dt>
             <dd className="text-xs sm:text-sm text-stone-600 mt-1 leading-relaxed">
               {totalRefs > 0
-                ? `The Page of You currently archives ${totalRefs} verified cultural references for ${data.name} across literature, song lyrics, cinema, video games, and fine art.`
+                ? `The Page of You archives verified cultural references for ${data.name} across literature, song lyrics, cinema, video games, and fine art — with additional entries discoverable on demand.`
                 : `Use the search bar above or category discovery buttons to uncover literary, musical, and cinematic mentions of ${data.name}.`}
             </dd>
           </div>

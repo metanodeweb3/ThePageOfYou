@@ -325,8 +325,8 @@ export function renderNameHtml(
   const faqCultureCount = books.length + songs.length + movies.length + games.length + art.length;
   const faqCultureAnswer =
     faqCultureCount > 0
-      ? `The Page of You currently archives ${faqCultureCount} verified cultural references for ${displayName} across books, song lyrics, cinema, video games, and fine art.`
-      : `Explore bespoke etymology and acrostic poetry for ${displayName}, or search our live archive for literary, musical, and cinematic mentions.`;
+      ? `The Page of You archives verified cultural references for ${displayName} across literature, song lyrics, cinema, video games, and fine art — with additional entries discoverable on demand.`
+      : `Use the search bar above or category discovery buttons to uncover literary, musical, and cinematic mentions of ${displayName}.`;
 
   const graph: Record<string, any>[] = [
     {

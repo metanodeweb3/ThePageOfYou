@@ -75,7 +75,7 @@ function buildNameOgSvg(displayName: string, nameData?: PersonNameData): string 
 
   const footerText =
     refCount > 0
-      ? `THEPAGEOFYOU.COM  •  ${refCount} CULTURAL REFERENCES &amp; ACROSTIC POEM`
+      ? 'THEPAGEOFYOU.COM  •  CULTURAL ARCHIVE &amp; ACROSTIC POEM'
       : 'DISCOVER YOUR NAME ETYMOLOGY  •  THEPAGEOFYOU.COM';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
