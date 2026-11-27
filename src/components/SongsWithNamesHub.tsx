@@ -7,24 +7,36 @@ import {
   Disc3,
   Feather,
   BookOpen,
+  Film,
+  Gamepad2,
+  Palette,
+  BookMarked,
+  Sparkles,
   X,
 } from 'lucide-react';
-import { getCuratedSongsIndex, stripOuterQuotes } from '../utils/seo';
+import {
+  formatDisplayName,
+  getCuratedSongsIndex,
+  isValidNameInput,
+  stripOuterQuotes,
+} from '../utils/seo';
 import { getAmazonMusicUrl } from '../utils/amazon';
 
 interface SongsWithNamesHubProps {
   onNavigate: (path: string) => void;
+  onSearchName?: (name: string) => void;
+  onSearchYourName?: () => void;
 }
 
-export const SongsWithNamesHub: React.FC<SongsWithNamesHubProps> = ({ onNavigate }) => {
+export const SongsWithNamesHub: React.FC<SongsWithNamesHubProps> = ({
+  onNavigate,
+  onSearchName,
+  onSearchYourName,
+}) => {
   const [query, setQuery] = useState('');
   const [selectedLetter, setSelectedLetter] = useState<string>('ALL');
 
   const allSongs = useMemo(() => getCuratedSongsIndex(), []);
-
-  const uniqueNameCount = useMemo(() => {
-    return new Set(allSongs.map((s) => s.slug)).size;
-  }, [allSongs]);
 
   const letters = useMemo(() => {
     const set = new Set(allSongs.map((s) => s.name[0]?.toUpperCase() || '#'));
@@ -65,11 +77,11 @@ export const SongsWithNamesHub: React.FC<SongsWithNamesHubProps> = ({ onNavigate
           Home
         </a>
         <span aria-hidden="true">/</span>
-        <span className="text-stone-800 font-medium">Songs With Names</span>
+        <span className="text-stone-800 font-medium">Songs &amp; Lyrics</span>
       </nav>
 
       {/* Rich Emerald Editorial Hero */}
-      <section className="rounded-3xl bg-gradient-to-br from-emerald-950 via-stone-900 to-emerald-950 text-emerald-50 p-6 sm:p-10 border border-emerald-700/40 shadow-xl relative overflow-hidden">
+      <section className="rounded-3xl bg-gradient-to-br from-emerald-950 via-stone-900 to-emerald-950 text-emerald-50 p-6 sm:p-10 border border-emerald-700/40 shadow-xl relative overflow-clip">
         <div
           aria-hidden="true"
           className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none"
@@ -80,43 +92,36 @@ export const SongsWithNamesHub: React.FC<SongsWithNamesHubProps> = ({ onNavigate
             <span>Curated Music &amp; Etymology Archive</span>
           </div>
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-serif font-bold text-white leading-tight tracking-tight">
-            Songs With Names in the Title &amp; Lyrics
+            Iconic Songs &amp; Lyrics Featuring Names
           </h1>
           <p className="text-sm sm:text-base text-emerald-100/90 leading-relaxed">
-            From classic rock anthems and soulful ballads to folk legends, explore{' '}
-            <strong className="text-white">{allSongs.length} verified songs</strong> celebrating{' '}
-            <strong className="text-white">{uniqueNameCount} classic and modern names</strong>. Filter by name, artist, or song title, then open any name&rsquo;s full etymology and acrostic poem archive.
+            From classic rock anthems and soulful ballads to folk legends, explore curated songs celebrating classic and modern names. Filter by name, artist, or song title, then open any name&rsquo;s full etymology and acrostic poem archive.
           </p>
         </div>
       </section>
 
       {/* Zero-API Filter & A-Z Bar */}
       <section className="rounded-2xl bg-white border border-stone-200 p-4 sm:p-5 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-emerald-700 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter by name, song title, artist, or lyrics (e.g. Jude, Fleetwood Mac, Eleanor)..."
-              aria-label="Filter songs with names"
-              className="w-full pl-10 pr-9 py-2.5 rounded-xl border border-stone-200 bg-stone-50/70 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-600"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery('')}
-                aria-label="Clear filter"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-700 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-          <div className="text-xs font-semibold text-stone-500 px-1 shrink-0">
-            Showing <span className="text-emerald-800">{filteredSongs.length}</span> of {allSongs.length} songs
-          </div>
+        <div className="relative">
+          <Search className="w-4 h-4 text-emerald-700 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter by name, song title, artist, or lyrics (e.g. Jude, Fleetwood Mac, Eleanor)..."
+            aria-label="Filter songs and lyrics"
+            className="w-full pl-10 pr-9 py-2.5 rounded-xl border border-stone-200 bg-stone-50/70 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-600"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Clear filter"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-700 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* A-Z Letter Pills */}
@@ -219,47 +224,105 @@ export const SongsWithNamesHub: React.FC<SongsWithNamesHubProps> = ({ onNavigate
           ))}
         </section>
       ) : (
-        <div className="rounded-2xl bg-white border border-stone-200 p-10 text-center space-y-3">
+        <div className="rounded-2xl bg-white border border-stone-200 p-10 text-center space-y-4">
           <p className="font-serif text-lg text-stone-800">No curated songs matched &ldquo;{query}&rdquo;.</p>
-          <button
-            type="button"
-            onClick={() => {
-              setQuery('');
-              setSelectedLetter('ALL');
-            }}
-            className="px-4 py-2 rounded-xl bg-emerald-800 text-white text-xs font-semibold hover:bg-emerald-700 cursor-pointer"
-          >
-            Reset Filters
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            {onSearchName && query.trim() && isValidNameInput(query.trim()).valid && (
+              <button
+                type="button"
+                onClick={() => onSearchName(query.trim())}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-100 text-xs font-semibold shadow-xs transition-all cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Search &ldquo;{formatDisplayName(query.trim())}&rdquo;</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setQuery('');
+                setSelectedLetter('ALL');
+              }}
+              className="px-4 py-2 rounded-xl bg-emerald-800 text-white text-xs font-semibold hover:bg-emerald-700 cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          </div>
         </div>
       )}
 
       {/* Cross-Hub Navigation Banner */}
-      <section className="rounded-2xl bg-amber-50/80 border border-amber-200 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <section className="rounded-2xl bg-amber-50/80 border border-amber-200 p-6 flex flex-col gap-4">
         <div className="space-y-1">
           <h2 className="text-lg sm:text-xl font-serif font-bold text-stone-900">
-            Looking for Personalised Name Poetry or Etymology?
+            Explore More Cultural Archives
           </h2>
           <p className="text-xs sm:text-sm text-stone-600">
-            Explore our printable acrostic poem gallery or browse every name from A to Z.
+            Search your own name or continue exploring curated references across books, cinema, video games, fine art, and acrostic poetry.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2.5 shrink-0">
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="/"
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+              e.preventDefault();
+              if (onSearchYourName) onSearchYourName();
+              else onNavigate('/');
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-stone-900 text-amber-100 hover:bg-stone-800 text-xs font-semibold transition-colors shadow-xs"
+          >
+            <Search className="w-3.5 h-3.5 text-amber-300" />
+            <span>Search Your Name</span>
+          </a>
+          <a
+            href="/books"
+            onClick={(e) => handleLinkClick(e, '/books')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-amber-900 hover:bg-amber-50 border border-amber-200 text-xs font-semibold transition-colors"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+            <span>Books</span>
+          </a>
+          <a
+            href="/film-and-tv"
+            onClick={(e) => handleLinkClick(e, '/film-and-tv')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-sky-900 hover:bg-sky-50 border border-sky-200 text-xs font-semibold transition-colors"
+          >
+            <Film className="w-3.5 h-3.5 text-sky-700" />
+            <span>Film &amp; TV</span>
+          </a>
+          <a
+            href="/video-games"
+            onClick={(e) => handleLinkClick(e, '/video-games')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-violet-900 hover:bg-violet-50 border border-violet-200 text-xs font-semibold transition-colors"
+          >
+            <Gamepad2 className="w-3.5 h-3.5 text-violet-700" />
+            <span>Games</span>
+          </a>
+          <a
+            href="/fine-art"
+            onClick={(e) => handleLinkClick(e, '/fine-art')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-rose-900 hover:bg-rose-50 border border-rose-200 text-xs font-semibold transition-colors"
+          >
+            <Palette className="w-3.5 h-3.5 text-rose-700" />
+            <span>Art</span>
+          </a>
           <a
             href="/acrostic-name-poems"
             onClick={(e) => handleLinkClick(e, '/acrostic-name-poems')}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-900 text-amber-200 hover:bg-stone-800 text-xs font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-stone-900 text-amber-200 hover:bg-stone-800 text-xs font-semibold transition-colors"
           >
             <Feather className="w-3.5 h-3.5 text-amber-400" />
-            <span>Acrostic Poems Gallery</span>
+            <span>Acrostic Poems</span>
           </a>
           <a
             href="/names"
             onClick={(e) => handleLinkClick(e, '/names')}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white text-stone-800 hover:bg-stone-50 border border-stone-300 text-xs font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-stone-800 hover:bg-stone-50 border border-stone-300 text-xs font-semibold transition-colors"
           >
-            <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-            <span>Browse Names A–Z</span>
+            <BookMarked className="w-3.5 h-3.5 text-amber-700" />
+            <span>Browse Curated Names A–Z</span>
           </a>
         </div>
       </section>

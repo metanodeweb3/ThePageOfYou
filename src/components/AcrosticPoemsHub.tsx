@@ -2,24 +2,35 @@ import React, { useMemo, useState } from 'react';
 import {
   Feather,
   Search,
+  Sparkles,
   Download,
   ArrowRight,
   Music,
   BookOpen,
+  BookMarked,
+  Film,
+  Gamepad2,
+  Palette,
   Paintbrush,
   X,
 } from 'lucide-react';
-import { getCuratedAcrosticsIndex } from '../utils/seo';
+import { getCuratedAcrosticsIndex, formatDisplayName, isValidNameInput } from '../utils/seo';
 import { ACROSTIC_THEMES } from '../lib/cardThemes';
 import { downloadAcrosticImage } from './SharePoemModal';
 
 interface AcrosticPoemsHubProps {
   onNavigate: (path: string) => void;
+  onSearchName?: (name: string) => void;
+  onSearchYourName?: () => void;
 }
 
 const GALLERY_THEME_IDS = ['obsidian', 'parchment', 'emerald', 'rose-quartz'] as const;
 
-export const AcrosticPoemsHub: React.FC<AcrosticPoemsHubProps> = ({ onNavigate }) => {
+export const AcrosticPoemsHub: React.FC<AcrosticPoemsHubProps> = ({
+  onNavigate,
+  onSearchName,
+  onSearchYourName,
+}) => {
   const [query, setQuery] = useState('');
   const [selectedLetter, setSelectedLetter] = useState<string>('ALL');
   const [selectedThemeId, setSelectedThemeId] = useState<string>('obsidian');
@@ -92,7 +103,7 @@ export const AcrosticPoemsHub: React.FC<AcrosticPoemsHubProps> = ({ onNavigate }
       </nav>
 
       {/* Rich Dark Espresso & Gold Hero */}
-      <section className="rounded-3xl bg-gradient-to-br from-[#1b1612] via-[#120f0d] to-[#241b12] text-amber-50 p-6 sm:p-10 border border-amber-500/30 shadow-xl relative overflow-hidden">
+      <section className="rounded-3xl bg-gradient-to-br from-[#1b1612] via-[#120f0d] to-[#241b12] text-amber-50 p-6 sm:p-10 border border-amber-500/30 shadow-xl relative overflow-clip">
         <div
           aria-hidden="true"
           className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-amber-500/15 blur-3xl pointer-events-none"
@@ -106,7 +117,7 @@ export const AcrosticPoemsHub: React.FC<AcrosticPoemsHubProps> = ({ onNavigate }
             Acrostic Name Poems &amp; Printable Verse Archive
           </h1>
           <p className="text-sm sm:text-base text-stone-300 leading-relaxed">
-            Browse <strong className="text-amber-200">{allPoems.length} original acrostic name poems</strong> crafted around each name&rsquo;s authentic etymology and meaning. Preview the gallery in four archival keepsake palettes, download any poem as a 1200px PNG print, or open a name&rsquo;s complete cultural profile.
+            Browse original acrostic name poems crafted around each name&rsquo;s authentic etymology and meaning. Preview the gallery in archival keepsake palettes, download any poem as a crisp PNG print, or open a name&rsquo;s complete cultural profile.
           </p>
         </div>
       </section>
@@ -189,9 +200,6 @@ export const AcrosticPoemsHub: React.FC<AcrosticPoemsHubProps> = ({ onNavigate }
               </button>
             ))}
           </div>
-          <span className="text-xs font-semibold text-stone-500">
-            Showing <span className="text-amber-800">{filteredPoems.length}</span> of {allPoems.length} poems
-          </span>
         </div>
       </section>
 
@@ -275,47 +283,105 @@ export const AcrosticPoemsHub: React.FC<AcrosticPoemsHubProps> = ({ onNavigate }
           ))}
         </section>
       ) : (
-        <div className="rounded-2xl bg-white border border-stone-200 p-10 text-center space-y-3">
+        <div className="rounded-2xl bg-white border border-stone-200 p-10 text-center space-y-4">
           <p className="font-serif text-lg text-stone-800">No acrostic poems matched &ldquo;{query}&rdquo;.</p>
-          <button
-            type="button"
-            onClick={() => {
-              setQuery('');
-              setSelectedLetter('ALL');
-            }}
-            className="px-4 py-2 rounded-xl bg-stone-900 text-amber-200 text-xs font-semibold hover:bg-stone-800 cursor-pointer"
-          >
-            Reset Filters
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            {onSearchName && query.trim() && isValidNameInput(query.trim()).valid && (
+              <button
+                type="button"
+                onClick={() => onSearchName(query.trim())}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-100 text-xs font-semibold shadow-xs transition-all cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Create Poem for &ldquo;{formatDisplayName(query.trim())}&rdquo;</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setQuery('');
+                setSelectedLetter('ALL');
+              }}
+              className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          </div>
         </div>
       )}
 
       {/* Cross-Hub Navigation Banner */}
-      <section className="rounded-2xl bg-emerald-50/80 border border-emerald-200 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <section className="rounded-2xl bg-emerald-50/80 border border-emerald-200 p-6 flex flex-col gap-4">
         <div className="space-y-1">
           <h2 className="text-lg sm:text-xl font-serif font-bold text-stone-900">
             Explore More Cultural Stories Behind Names
           </h2>
           <p className="text-xs sm:text-sm text-stone-600">
-            Discover famous songs featuring names in the lyrics or browse our complete A–Z etymology directory.
+            Search your own name or discover curated books, songs, films, video games, and fine art across our archive.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2.5 shrink-0">
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="/"
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+              e.preventDefault();
+              if (onSearchYourName) onSearchYourName();
+              else onNavigate('/');
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-stone-900 text-amber-100 hover:bg-stone-800 text-xs font-semibold transition-colors shadow-xs"
+          >
+            <Search className="w-3.5 h-3.5 text-amber-300" />
+            <span>Search Your Name</span>
+          </a>
+          <a
+            href="/books"
+            onClick={(e) => handleLinkClick(e, '/books')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-amber-900 hover:bg-amber-50 border border-amber-200 text-xs font-semibold transition-colors"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+            <span>Books</span>
+          </a>
           <a
             href="/songs-with-names"
             onClick={(e) => handleLinkClick(e, '/songs-with-names')}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-900 text-emerald-50 hover:bg-emerald-800 text-xs font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-900 text-emerald-50 hover:bg-emerald-800 text-xs font-semibold transition-colors"
           >
             <Music className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Songs With Names</span>
+            <span>Songs</span>
+          </a>
+          <a
+            href="/film-and-tv"
+            onClick={(e) => handleLinkClick(e, '/film-and-tv')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-sky-900 hover:bg-sky-50 border border-sky-200 text-xs font-semibold transition-colors"
+          >
+            <Film className="w-3.5 h-3.5 text-sky-700" />
+            <span>Film &amp; TV</span>
+          </a>
+          <a
+            href="/video-games"
+            onClick={(e) => handleLinkClick(e, '/video-games')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-violet-900 hover:bg-violet-50 border border-violet-200 text-xs font-semibold transition-colors"
+          >
+            <Gamepad2 className="w-3.5 h-3.5 text-violet-700" />
+            <span>Games</span>
+          </a>
+          <a
+            href="/fine-art"
+            onClick={(e) => handleLinkClick(e, '/fine-art')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-rose-900 hover:bg-rose-50 border border-rose-200 text-xs font-semibold transition-colors"
+          >
+            <Palette className="w-3.5 h-3.5 text-rose-700" />
+            <span>Art</span>
           </a>
           <a
             href="/names"
             onClick={(e) => handleLinkClick(e, '/names')}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white text-stone-800 hover:bg-stone-50 border border-stone-300 text-xs font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-stone-800 hover:bg-stone-50 border border-stone-300 text-xs font-semibold transition-colors"
           >
-            <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-            <span>Browse Names A–Z</span>
+            <BookMarked className="w-3.5 h-3.5 text-amber-700" />
+            <span>Browse Curated Names A–Z</span>
           </a>
         </div>
       </section>

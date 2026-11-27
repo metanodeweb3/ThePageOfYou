@@ -72,7 +72,7 @@ export const HomeShowcase: React.FC<HomeShowcaseProps> = ({ onNavigate }) => {
   return (
     <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 space-y-10 pb-8">
       {/* Signature Dark Espresso & Amber Gold Showcase Banner (restores warm archival contrast immediately on /) */}
-      <section className="bg-gradient-to-r from-amber-900 via-stone-900 to-amber-950 text-stone-100 rounded-2xl p-6 sm:p-8 shadow-md border border-amber-700/40 relative overflow-hidden">
+      <section className="bg-gradient-to-r from-amber-900 via-stone-900 to-amber-950 text-stone-100 rounded-2xl p-6 sm:p-8 shadow-md border border-amber-700/40 relative overflow-clip">
         <div className="absolute -top-16 -right-16 w-60 h-60 bg-amber-400/15 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-16 -left-16 w-60 h-60 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -80,37 +80,69 @@ export const HomeShowcase: React.FC<HomeShowcaseProps> = ({ onNavigate }) => {
           <div className="lg:col-span-7 space-y-3">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30 text-xs font-semibold">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>{allCurated.length}+ Curated Name Archives Ready Instantly</span>
+              <span>Curated Cultural Archive &amp; Live Discovery</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-serif font-bold text-white leading-tight">
-              Every Name Has a Story Written Across Books, Songs, Film &amp; Fine Art
+              Every Name Has a Story Across Books, Songs, Film, Games &amp; Art
             </h2>
             <p className="text-sm text-stone-300 leading-relaxed">
-              Explore verified cultural references, deep linguistic etymology, and a custom acrostic poem — complete with downloadable keepsake cards in four archival colour themes.
+              Explore verified cultural references, deep linguistic etymology, and a custom acrostic poem — complete with downloadable keepsake cards in archival colour themes.
             </p>
-            <div className="flex flex-wrap items-center gap-2.5 pt-1">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <a
                 href="/names"
                 onClick={(e) => handleLinkClick(e, '/names')}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95"
               >
-                <span>Browse All {allCurated.length} Names A–Z</span>
+                <span>Browse Curated Names A–Z</span>
                 <ArrowRight className="w-4 h-4" />
+              </a>
+              <a
+                href="/books"
+                onClick={(e) => handleLinkClick(e, '/books')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 text-amber-200 border border-amber-500/30 font-semibold text-xs transition-all"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+                <span>Books</span>
               </a>
               <a
                 href="/songs-with-names"
                 onClick={(e) => handleLinkClick(e, '/songs-with-names')}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 text-emerald-200 border border-emerald-500/30 font-semibold text-xs sm:text-sm transition-all"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 text-emerald-200 border border-emerald-500/30 font-semibold text-xs transition-all"
               >
-                <Music className="w-4 h-4 text-emerald-400" />
-                <span>Songs With Names</span>
+                <Music className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Songs</span>
+              </a>
+              <a
+                href="/film-and-tv"
+                onClick={(e) => handleLinkClick(e, '/film-and-tv')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 text-sky-200 border border-sky-500/30 font-semibold text-xs transition-all"
+              >
+                <Film className="w-3.5 h-3.5 text-sky-400" />
+                <span>Film &amp; TV</span>
+              </a>
+              <a
+                href="/video-games"
+                onClick={(e) => handleLinkClick(e, '/video-games')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 text-violet-200 border border-violet-500/30 font-semibold text-xs transition-all"
+              >
+                <Gamepad2 className="w-3.5 h-3.5 text-violet-400" />
+                <span>Games</span>
+              </a>
+              <a
+                href="/fine-art"
+                onClick={(e) => handleLinkClick(e, '/fine-art')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 text-rose-200 border border-rose-500/30 font-semibold text-xs transition-all"
+              >
+                <Palette className="w-3.5 h-3.5 text-rose-400" />
+                <span>Art</span>
               </a>
               <a
                 href="/acrostic-name-poems"
                 onClick={(e) => handleLinkClick(e, '/acrostic-name-poems')}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 text-amber-200 border border-amber-500/30 font-semibold text-xs sm:text-sm transition-all"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 text-amber-200 border border-amber-500/30 font-semibold text-xs transition-all"
               >
-                <Feather className="w-4 h-4 text-amber-300" />
+                <Feather className="w-3.5 h-3.5 text-amber-300" />
                 <span>Acrostic Poems</span>
               </a>
             </div>
@@ -299,11 +331,11 @@ export const HomeShowcase: React.FC<HomeShowcaseProps> = ({ onNavigate }) => {
                 Custom Acrostic Poems &amp; Printable Keepsakes
               </h3>
               <p className="text-xs sm:text-sm text-stone-300 mt-2 leading-relaxed">
-                Explore handcrafted acrostic poems across {allCurated.length}+ curated names, ready to preview in 4 themes and download as crisp PNG keepsakes.
+                Explore handcrafted acrostic poems across our curated archive, ready to preview in archival themes and download as crisp PNG keepsakes.
               </p>
             </div>
             <div className="mt-4 pt-3 border-t border-stone-800 flex items-center justify-between text-xs font-bold text-amber-300 group-hover:text-amber-200">
-              <span>Explore Acrostic Poems Hub</span>
+              <span>Explore Acrostic Poems</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
             </div>
           </a>
@@ -329,7 +361,7 @@ export const HomeShowcase: React.FC<HomeShowcaseProps> = ({ onNavigate }) => {
             onClick={(e) => handleLinkClick(e, '/names')}
             className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-900 hover:text-amber-700 transition-colors"
           >
-            <span>View All {allCurated.length} Names A–Z</span>
+            <span>Browse Curated Names A–Z</span>
             <ArrowRight className="w-4 h-4" />
           </a>
         </div>
@@ -385,7 +417,7 @@ export const HomeShowcase: React.FC<HomeShowcaseProps> = ({ onNavigate }) => {
             onClick={(e) => handleLinkClick(e, '/names')}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-200 font-bold text-sm shadow-md transition-all active:scale-95"
           >
-            <span>Explore All {allCurated.length} Curated Names A–Z</span>
+            <span>Browse Curated Names A–Z</span>
             <ArrowRight className="w-4 h-4 text-amber-300" />
           </a>
         </div>

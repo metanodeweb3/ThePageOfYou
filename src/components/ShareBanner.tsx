@@ -26,7 +26,7 @@ export const ShareBanner: React.FC<ShareBannerProps> = ({
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 my-6">
-      <div className="bg-gradient-to-r from-amber-900 via-stone-900 to-amber-950 text-stone-100 p-5 sm:p-6 rounded-2xl shadow-md border border-amber-800/40 relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-5">
+      <div className="bg-gradient-to-r from-amber-900 via-stone-900 to-amber-950 text-stone-100 p-5 sm:p-6 rounded-2xl shadow-md border border-amber-800/40 relative overflow-clip flex flex-col md:flex-row items-center justify-between gap-5">
         {/* Background glow accent */}
         <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-amber-400/10 rounded-full blur-2xl pointer-events-none" />

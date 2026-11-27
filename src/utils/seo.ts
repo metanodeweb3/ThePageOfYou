@@ -41,6 +41,22 @@ const BLOCKED_SPAM_TERMS = [
   'fuck',
   'shit',
   'bitch',
+  'asshole',
+  'bastard',
+  'cunt',
+  'whore',
+  'slut',
+  'penis',
+  'vagina',
+  'dildo',
+  'boobs',
+  'anus',
+  'fart',
+  'toilet',
+  'poop',
+  'hitler',
+  'stalin',
+  'nazi',
   'script',
   'select ',
   'union ',
@@ -93,14 +109,27 @@ export function isValidNameInput(raw: string): NameValidationResult {
 }
 
 /**
- * Checks whether a name slug should be indexed in the directory and XML sitemap.
+ * Returns true ONLY if the name exists in our vetted static curated archive
+ * (excluding novelty non-name easter eggs).
+ */
+export function isCuratedName(name: string): boolean {
+  if (!name || typeof name !== 'string') return false;
+  const lower = name.trim().toLowerCase();
+  const normalized = normalizeText(name);
+  if (!normalized || EXCLUDED_NON_NAMES.has(normalized)) return false;
+  return Boolean(POPULAR_NAMES_DATA[lower] || POPULAR_NAMES_DATA[normalized]);
+}
+
+/**
+ * Checks whether a name slug should be indexed in the public directory and XML sitemap.
+ * Strictly restricted to vetted curated given names so unmoderated user queries
+ * never pollute public directories or Google search indexing.
  */
 export function isIndexableName(name: string): boolean {
   const validation = isValidNameInput(name);
   if (!validation.valid) return false;
+  if (!isCuratedName(name)) return false;
   const normalized = normalizeText(name);
-  if (!normalized || EXCLUDED_NON_NAMES.has(normalized)) return false;
-  // Sitemap/directory entries should be concise single or two-word names
   if (normalized.split(/\s+/).length > 2) return false;
   return true;
 }
@@ -216,26 +245,80 @@ export function buildDirectorySeo(): PageSeoMeta {
 }
 
 export function buildSongsHubSeo(): PageSeoMeta {
-  const nameCount = getCuratedDirectoryNames().length;
   return {
-    title: 'Songs With Names in the Title & Lyrics | The Page of You',
+    title: 'Iconic Songs & Lyrics Featuring Names | The Page of You',
     description: truncateClean(
-      `Explore curated songs with names in the title and lyrics across ${nameCount} classic and modern names, with verified lyric quotes, name etymology, and music links.`,
+      'Explore curated songs featuring names in the title and lyrics across classic and modern names, with verified lyric quotes, name etymology, and music links.',
       158
     ),
     canonical: `${SITE_URL}/songs-with-names`,
     ogImage: `${SITE_URL}/og/default.png`,
-    ogImageAlt: 'Songs With Names in the Title & Lyrics Archive on The Page of You',
+    ogImageAlt: 'Iconic Songs & Lyrics Featuring Names on The Page of You',
+    robots: 'index, follow',
+  };
+}
+
+export function buildBooksHubSeo(): PageSeoMeta {
+  return {
+    title: 'Books & Literary Quotes Featuring Names | The Page of You',
+    description: truncateClean(
+      'Explore classic and modern books, literary characters, and famous quotes connected to names, paired with etymology and custom acrostic poetry.',
+      158
+    ),
+    canonical: `${SITE_URL}/books`,
+    ogImage: `${SITE_URL}/og/default.png`,
+    ogImageAlt: 'Books & Literary Quotes Featuring Names on The Page of You',
+    robots: 'index, follow',
+  };
+}
+
+export function buildMoviesHubSeo(): PageSeoMeta {
+  return {
+    title: 'Film & TV Quotes Featuring Names | The Page of You',
+    description: truncateClean(
+      'Discover iconic film and television characters, memorable dialogue, and cinema moments tied to names across our curated cultural archive.',
+      158
+    ),
+    canonical: `${SITE_URL}/film-and-tv`,
+    ogImage: `${SITE_URL}/og/default.png`,
+    ogImageAlt: 'Film & TV Quotes Featuring Names on The Page of You',
+    robots: 'index, follow',
+  };
+}
+
+export function buildGamesHubSeo(): PageSeoMeta {
+  return {
+    title: 'Video Games & Gaming Lore Featuring Names | The Page of You',
+    description: truncateClean(
+      'Explore iconic video games, beloved characters, and gaming lore connected to names, alongside verified etymology and bespoke acrostic poems.',
+      158
+    ),
+    canonical: `${SITE_URL}/video-games`,
+    ogImage: `${SITE_URL}/og/default.png`,
+    ogImageAlt: 'Video Games & Gaming Lore Featuring Names on The Page of You',
+    robots: 'index, follow',
+  };
+}
+
+export function buildArtHubSeo(): PageSeoMeta {
+  return {
+    title: 'Fine Art & Famous Artists Connected to Names | The Page of You',
+    description: truncateClean(
+      'Explore museum masterpieces, portraits, and celebrated artists connected to names across our curated etymology and cultural archive.',
+      158
+    ),
+    canonical: `${SITE_URL}/fine-art`,
+    ogImage: `${SITE_URL}/og/default.png`,
+    ogImageAlt: 'Fine Art & Famous Artists Connected to Names on The Page of You',
     robots: 'index, follow',
   };
 }
 
 export function buildAcrosticHubSeo(): PageSeoMeta {
-  const nameCount = getCuratedDirectoryNames().length;
   return {
     title: 'Acrostic Name Poems — Custom Verse Archive & Keepsakes',
     description: truncateClean(
-      `Browse bespoke acrostic name poems with etymology and meanings for ${nameCount} popular names. Preview keepsake themes and download printable acrostic verse cards.`,
+      'Browse bespoke acrostic name poems with authentic etymology and meanings. Preview keepsake themes and download printable acrostic verse cards.',
       158
     ),
     canonical: `${SITE_URL}/acrostic-name-poems`,
@@ -353,6 +436,146 @@ export function getCuratedSongsIndex(): CuratedSongHubEntry[] {
         year: song.year,
         lyricsQuote: song.lyricsQuote,
         albumVibe: song.albumVibe,
+      });
+    }
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name) || a.title.localeCompare(b.title));
+}
+
+export interface CuratedBookHubEntry {
+  id: string;
+  slug: string;
+  name: string;
+  origin: string;
+  title: string;
+  author: string;
+  year?: string;
+  quote: string;
+  context?: string;
+}
+
+export function getCuratedBooksIndex(): CuratedBookHubEntry[] {
+  const entries: CuratedBookHubEntry[] = [];
+  for (const [key, data] of Object.entries(POPULAR_NAMES_DATA)) {
+    if (EXCLUDED_NON_NAMES.has(normalizeText(key))) continue;
+    if (!Array.isArray(data.books)) continue;
+    for (const book of data.books) {
+      if (!book?.title || !book?.author || !book?.quote) continue;
+      entries.push({
+        id: book.id || `${key}-b-${book.title}`,
+        slug: key.toLowerCase(),
+        name: data.name,
+        origin: data.origin || 'Cultural Heritage',
+        title: book.title,
+        author: book.author,
+        year: book.year,
+        quote: book.quote,
+        context: book.context,
+      });
+    }
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name) || a.title.localeCompare(b.title));
+}
+
+export interface CuratedMovieHubEntry {
+  id: string;
+  slug: string;
+  name: string;
+  origin: string;
+  title: string;
+  character?: string;
+  actor?: string;
+  year?: string;
+  quote: string;
+}
+
+export function getCuratedMoviesIndex(): CuratedMovieHubEntry[] {
+  const entries: CuratedMovieHubEntry[] = [];
+  for (const [key, data] of Object.entries(POPULAR_NAMES_DATA)) {
+    if (EXCLUDED_NON_NAMES.has(normalizeText(key))) continue;
+    if (!Array.isArray(data.movies)) continue;
+    for (const movie of data.movies) {
+      if (!movie?.title || !movie?.quote) continue;
+      entries.push({
+        id: movie.id || `${key}-m-${movie.title}`,
+        slug: key.toLowerCase(),
+        name: data.name,
+        origin: data.origin || 'Cultural Heritage',
+        title: movie.title,
+        character: movie.character,
+        actor: movie.actor,
+        year: movie.year,
+        quote: movie.quote,
+      });
+    }
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name) || a.title.localeCompare(b.title));
+}
+
+export interface CuratedGameHubEntry {
+  id: string;
+  slug: string;
+  name: string;
+  origin: string;
+  title: string;
+  character?: string;
+  developer?: string;
+  year?: string;
+  quote: string;
+}
+
+export function getCuratedGamesIndex(): CuratedGameHubEntry[] {
+  const entries: CuratedGameHubEntry[] = [];
+  for (const [key, data] of Object.entries(POPULAR_NAMES_DATA)) {
+    if (EXCLUDED_NON_NAMES.has(normalizeText(key))) continue;
+    if (!Array.isArray(data.games)) continue;
+    for (const game of data.games) {
+      if (!game?.title || !game?.quote) continue;
+      entries.push({
+        id: game.id || `${key}-g-${game.title}`,
+        slug: key.toLowerCase(),
+        name: data.name,
+        origin: data.origin || 'Cultural Heritage',
+        title: game.title,
+        character: game.character,
+        developer: game.developer,
+        year: game.year,
+        quote: game.quote,
+      });
+    }
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name) || a.title.localeCompare(b.title));
+}
+
+export interface CuratedArtHubEntry {
+  id: string;
+  slug: string;
+  name: string;
+  origin: string;
+  title: string;
+  artist: string;
+  year?: string;
+  medium?: string;
+  quote: string;
+}
+
+export function getCuratedArtIndex(): CuratedArtHubEntry[] {
+  const entries: CuratedArtHubEntry[] = [];
+  for (const [key, data] of Object.entries(POPULAR_NAMES_DATA)) {
+    if (EXCLUDED_NON_NAMES.has(normalizeText(key))) continue;
+    if (!Array.isArray(data.art)) continue;
+    for (const art of data.art) {
+      if (!art?.title || !art?.artist || !art?.quote) continue;
+      entries.push({
+        id: art.id || `${key}-a-${art.title}`,
+        slug: key.toLowerCase(),
+        name: data.name,
+        origin: data.origin || 'Cultural Heritage',
+        title: art.title,
+        artist: art.artist,
+        year: art.year,
+        medium: art.medium,
+        quote: art.quote,
       });
     }
   }

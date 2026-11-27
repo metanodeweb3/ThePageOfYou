@@ -59,7 +59,7 @@ export const AcrosticPoem: React.FC<AcrosticPoemProps> = ({
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 mt-6 mb-2 sm:mt-8 sm:mb-4">
-      <div className="bg-stone-900 text-stone-100 rounded-2xl p-4 sm:p-6 md:p-8 shadow-md border border-stone-800 relative overflow-hidden">
+      <div className="bg-stone-900 text-stone-100 rounded-2xl p-4 sm:p-6 md:p-8 shadow-md border border-stone-800 relative overflow-clip">
         {/* Decorative background glow */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 

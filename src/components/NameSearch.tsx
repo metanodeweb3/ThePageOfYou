@@ -8,8 +8,10 @@ import {
   CheckCircle2,
   BookOpen,
   Music2,
+  Film,
+  Gamepad2,
+  Palette,
   Feather,
-  Image,
   AlertCircle,
 } from 'lucide-react';
 import { getNameSlug } from '../utils/seo';
@@ -87,12 +89,20 @@ export const NameSearch: React.FC<NameSearchProps> = ({
     onNavigate('/names');
   };
 
+  const handleHubLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    onNavigate(path);
+  };
+
   const handleExploreClick = () => {
     if (onScrollToResults) {
       onScrollToResults();
     } else {
       const target =
-        document.getElementById('name-hero-section') || document.getElementById('quote-section');
+        document.getElementById('quote-section') ||
+        document.getElementById('acrostic-section') ||
+        document.getElementById('name-hero-section');
       if (target) {
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
@@ -100,11 +110,13 @@ export const NameSearch: React.FC<NameSearchProps> = ({
   };
 
   return (
-    <div className="w-full max-w-5xl mx-auto my-5 sm:my-7 px-4 sm:px-6">
-      <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-stone-200/80 text-center relative overflow-hidden">
+    <div id="name-search-section" className="w-full max-w-5xl mx-auto my-5 sm:my-7 px-4 sm:px-6 scroll-mt-6">
+      <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-stone-200/80 text-center relative overflow-clip">
         {/* Subtle decorative background glow */}
-        <div className="absolute -top-24 -right-24 w-48 h-48 bg-amber-100/40 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-stone-100/60 rounded-full blur-3xl pointer-events-none" />
+        <div aria-hidden="true" className="absolute inset-0 overflow-clip rounded-2xl pointer-events-none">
+          <div className="absolute -top-24 -right-24 w-48 h-48 bg-amber-100/40 rounded-full blur-3xl" />
+          <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-stone-100/60 rounded-full blur-3xl" />
+        </div>
 
         {isHomeHero ? (
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-stone-900 tracking-tight mb-2.5 max-w-2xl mx-auto leading-tight">
@@ -120,25 +132,57 @@ export const NameSearch: React.FC<NameSearchProps> = ({
           Uncover linguistic etymology, verified references across books, songs, films, video games, and fine art, plus a custom acrostic poem.
         </p>
 
-        {/* Colour-Coded Feature Output Highlights */}
+        {/* Colour-Coded Clickable Category Exploration Highlights */}
         {isHomeHero && (
           <div className="flex flex-wrap items-center justify-center gap-2 mb-6 max-w-2xl mx-auto">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200/90 text-xs font-semibold">
+            <a
+              href="/books"
+              onClick={(e) => handleHubLinkClick(e, '/books')}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/90 text-xs font-semibold transition-colors"
+            >
               <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-              <span>Etymology &amp; Literature</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-900 border border-emerald-200/90 text-xs font-semibold">
+              <span>Books</span>
+            </a>
+            <a
+              href="/songs-with-names"
+              onClick={(e) => handleHubLinkClick(e, '/songs-with-names')}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/90 text-xs font-semibold transition-colors"
+            >
               <Music2 className="w-3.5 h-3.5 text-emerald-700" />
               <span>Songs &amp; Lyrics</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-50 text-violet-900 border border-violet-200/90 text-xs font-semibold">
-              <Feather className="w-3.5 h-3.5 text-violet-700" />
-              <span>Custom Acrostic Poem</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-900 border border-rose-200/90 text-xs font-semibold">
-              <Image className="w-3.5 h-3.5 text-rose-700" />
-              <span>Keepsake Cards</span>
-            </span>
+            </a>
+            <a
+              href="/film-and-tv"
+              onClick={(e) => handleHubLinkClick(e, '/film-and-tv')}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200/90 text-xs font-semibold transition-colors"
+            >
+              <Film className="w-3.5 h-3.5 text-sky-700" />
+              <span>Film &amp; TV</span>
+            </a>
+            <a
+              href="/video-games"
+              onClick={(e) => handleHubLinkClick(e, '/video-games')}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-50 hover:bg-violet-100 text-violet-900 border border-violet-200/90 text-xs font-semibold transition-colors"
+            >
+              <Gamepad2 className="w-3.5 h-3.5 text-violet-700" />
+              <span>Video Games</span>
+            </a>
+            <a
+              href="/fine-art"
+              onClick={(e) => handleHubLinkClick(e, '/fine-art')}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-200/90 text-xs font-semibold transition-colors"
+            >
+              <Palette className="w-3.5 h-3.5 text-rose-700" />
+              <span>Fine Art</span>
+            </a>
+            <a
+              href="/acrostic-name-poems"
+              onClick={(e) => handleHubLinkClick(e, '/acrostic-name-poems')}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100 hover:bg-stone-200/80 text-stone-800 border border-stone-300/90 text-xs font-semibold transition-colors"
+            >
+              <Feather className="w-3.5 h-3.5 text-amber-700" />
+              <span>Acrostic Poems</span>
+            </a>
           </div>
         )}
 
@@ -160,9 +204,9 @@ export const NameSearch: React.FC<NameSearchProps> = ({
               }}
               placeholder="e.g. Eleanor, Jude, Sarah, Maya..."
               maxLength={40}
-              className="w-full bg-stone-50/80 border border-stone-300 focus:border-stone-800 focus:bg-white text-stone-900 text-base rounded-xl px-4 py-3.5 pl-11 shadow-inner focus:outline-none transition-all placeholder:text-stone-400 font-medium"
+              className="block w-full h-12 bg-stone-50/80 border border-stone-300 focus:border-stone-800 focus:bg-white text-stone-900 text-base leading-normal rounded-xl pr-4 pl-11 py-0 appearance-none shadow-inner focus:outline-none transition-all placeholder:text-stone-400 font-medium"
             />
-            <Search className="w-5 h-5 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-5 h-5 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -170,7 +214,7 @@ export const NameSearch: React.FC<NameSearchProps> = ({
               id="btn-search-submit"
               type="submit"
               disabled={!inputVal.trim()}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-100 font-semibold text-sm shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
+              className="w-full sm:w-auto h-12 px-6 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-100 font-semibold text-sm shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
             >
               {isLoading ? (
                 <>
@@ -190,7 +234,7 @@ export const NameSearch: React.FC<NameSearchProps> = ({
                 id="btn-search-stop"
                 type="button"
                 onClick={onCancelSearch}
-                className="px-4 py-3.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-sm border border-rose-200 transition-all active:scale-95 flex items-center justify-center gap-1.5 whitespace-nowrap shadow-xs cursor-pointer"
+                className="h-12 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-sm border border-rose-200 transition-all active:scale-95 flex items-center justify-center gap-1.5 whitespace-nowrap shadow-xs cursor-pointer"
                 title="Stop search"
               >
                 <Square className="w-4 h-4 fill-rose-600 text-rose-600" />
@@ -259,7 +303,7 @@ export const NameSearch: React.FC<NameSearchProps> = ({
             onClick={handleDirectoryLinkClick}
             className="text-xs px-2.5 py-1 rounded-lg border border-amber-200/80 bg-amber-50/70 hover:bg-amber-100 text-amber-900 font-semibold transition-all"
           >
-            All Names A–Z &rarr;
+            Browse Curated Names A–Z &rarr;
           </a>
         </div>
       </div>

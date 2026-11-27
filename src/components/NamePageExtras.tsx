@@ -60,7 +60,7 @@ export const NameHeroHeader: React.FC<NameHeroHeaderProps> = ({ data, onNavigate
           </span>
           {totalRefs > 0 && (
             <span className="text-xs font-semibold text-stone-600 bg-stone-100 border border-stone-200 px-2.5 py-0.5 rounded-md">
-              {totalRefs} Cultural References Archived
+              Verified Cultural Archive
             </span>
           )}
         </div>

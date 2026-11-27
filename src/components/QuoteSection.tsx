@@ -42,6 +42,7 @@ interface QuoteSectionProps {
     type: 'success' | 'info' | 'error';
     message: string;
   } | null;
+  exhaustedCategories?: Record<string, boolean>;
   onDismissEnrichStatus?: () => void;
 }
 
@@ -56,6 +57,7 @@ interface CarouselCategoryProps<T> {
   onFindMore?: () => void;
   isFindingMore?: boolean;
   isAnyEnriching?: boolean;
+  isExhausted?: boolean;
   findMoreLabel?: string;
   findMoreColorClass?: string;
 }
@@ -71,6 +73,7 @@ function CarouselCategorySection<T extends { id: string }>({
   onFindMore,
   isFindingMore = false,
   isAnyEnriching = false,
+  isExhausted = false,
   findMoreLabel,
   findMoreColorClass,
 }: CarouselCategoryProps<T>) {
@@ -124,16 +127,27 @@ function CarouselCategorySection<T extends { id: string }>({
               type="button"
               id={`${id}-btn-find-more`}
               onClick={onFindMore}
-              disabled={isFindingMore || isAnyEnriching}
+              disabled={isFindingMore || isAnyEnriching || isExhausted}
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all shadow-2xs hover:shadow-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap ${
-                findMoreColorClass || 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300/80'
+                isExhausted
+                  ? 'bg-stone-100 text-stone-500 border-stone-200'
+                  : findMoreColorClass || 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300/80'
               }`}
-              title={`Search archives for more ${title}`}
+              title={
+                isExhausted
+                  ? `All verified ${title} are already loaded`
+                  : `Search archives for more ${title}`
+              }
             >
               {isFindingMore ? (
                 <>
                   <Loader2 className="w-3 h-3 animate-spin text-current" />
-                  <span>Searching archives...</span>
+                  <span>Verifying archives...</span>
+                </>
+              ) : isExhausted ? (
+                <>
+                  <CheckCircle2 className="w-3 h-3 text-current" />
+                  <span>All verified entries loaded</span>
                 </>
               ) : (
                 <>
@@ -231,8 +245,10 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
   isEnriching = false,
   enrichingCategory = null,
   enrichStatus = null,
+  exhaustedCategories,
   onDismissEnrichStatus,
 }) => {
+  const exhausted: Record<string, boolean> = exhaustedCategories ?? {};
   const [activeTab, setActiveTab] = useState<'all' | 'books' | 'songs' | 'movies' | 'games' | 'art'>('all');
 
   useEffect(() => {
@@ -384,6 +400,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
             onFindMore={onEnrichCategory ? () => onEnrichCategory('books') : undefined}
             isFindingMore={enrichingCategory === 'books'}
             isAnyEnriching={Boolean(isEnriching || enrichingCategory)}
+            isExhausted={Boolean(exhausted.books)}
             findMoreLabel="Click to find more Books"
             findMoreColorClass="bg-amber-50 hover:bg-amber-100/90 text-amber-900 border-amber-300/80"
             renderCard={(book) => (
@@ -443,6 +460,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
             onFindMore={onEnrichCategory ? () => onEnrichCategory('songs') : undefined}
             isFindingMore={enrichingCategory === 'songs'}
             isAnyEnriching={Boolean(isEnriching || enrichingCategory)}
+            isExhausted={Boolean(exhausted.songs)}
             findMoreLabel="Click to find more Songs"
             findMoreColorClass="bg-emerald-50 hover:bg-emerald-100/90 text-emerald-900 border-emerald-300/80"
             renderCard={(song) => (
@@ -503,6 +521,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
             onFindMore={onEnrichCategory ? () => onEnrichCategory('movies') : undefined}
             isFindingMore={enrichingCategory === 'movies'}
             isAnyEnriching={Boolean(isEnriching || enrichingCategory)}
+            isExhausted={Boolean(exhausted.movies)}
             findMoreLabel="Click to find more Films"
             findMoreColorClass="bg-sky-50 hover:bg-sky-100/90 text-sky-900 border-sky-300/80"
             renderCard={(movie) => (
@@ -558,6 +577,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
             onFindMore={onEnrichCategory ? () => onEnrichCategory('games') : undefined}
             isFindingMore={enrichingCategory === 'games'}
             isAnyEnriching={Boolean(isEnriching || enrichingCategory)}
+            isExhausted={Boolean(exhausted.games)}
             findMoreLabel="Click to find more Games"
             findMoreColorClass="bg-violet-50 hover:bg-violet-100/90 text-violet-900 border-violet-300/80"
             renderCard={(game) => (
@@ -613,6 +633,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
             onFindMore={onEnrichCategory ? () => onEnrichCategory('art') : undefined}
             isFindingMore={enrichingCategory === 'art'}
             isAnyEnriching={Boolean(isEnriching || enrichingCategory)}
+            isExhausted={Boolean(exhausted.art)}
             findMoreLabel="Click to find more Art"
             findMoreColorClass="bg-rose-50 hover:bg-rose-100/90 text-rose-900 border-rose-300/80"
             renderCard={(item) => (

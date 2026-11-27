@@ -2,7 +2,7 @@ import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getFirestore, collection, doc, getDocs, setDoc, getDoc, query, orderBy, limit, increment, type Firestore } from 'firebase/firestore';
 import { PersonNameData } from '../types';
 import { normalizeText } from '../utils/searchEngine';
-import { isIndexableName, isValidNameInput, formatDisplayName } from '../utils/seo';
+import { isCuratedName, isValidNameInput, formatDisplayName } from '../utils/seo';
 
 // Safely resolve configuration if firebase-applet-config.json exists
 const configModules = import.meta.glob('../../firebase-applet-config.json', { eager: true });
@@ -35,7 +35,7 @@ function isClientCachedDataUsable(data: any): boolean {
     (Array.isArray(data.games) ? data.games.length : 0) +
     (Array.isArray(data.art) ? data.art.length : 0);
   const hasAcrostic = Array.isArray(data.acrostic) && data.acrostic.length > 0;
-  return totalRefs >= 3 && hasAcrostic;
+  return totalRefs >= 1 && hasAcrostic;
 }
 
 export async function fetchPopularNames(): Promise<string[]> {
@@ -55,7 +55,7 @@ export async function fetchPopularNames(): Promise<string[]> {
     const seen = new Set<string>();
     snapshot.forEach((docSnap) => {
       const data = docSnap.data();
-      if (data?.name && typeof data.name === 'string' && isIndexableName(data.name)) {
+      if (data?.name && typeof data.name === 'string' && isCuratedName(data.name)) {
         const display = formatDisplayName(data.name);
         const norm = normalizeText(display);
         if (!seen.has(norm)) {
@@ -73,7 +73,7 @@ export async function fetchPopularNames(): Promise<string[]> {
 }
 
 export async function trackNameSearch(name: string): Promise<void> {
-  if (!db || !name || !isIndexableName(name)) return;
+  if (!db || !name || !isCuratedName(name)) return;
   const cleanName = formatDisplayName(name);
   const docId = normalizeText(cleanName);
   if (!docId || docId.length < 2 || docId.length > 40) return;
@@ -117,7 +117,7 @@ export async function getCachedNameData(name: string): Promise<PersonNameData | 
       const firestoreData = docSnap.data();
       if (!firestoreData) return null;
       const schemaVersion = typeof firestoreData.schemaVersion === 'number' ? firestoreData.schemaVersion : 0;
-      if (schemaVersion < 3) return null;
+      if (schemaVersion < 4) return null;
 
       if (firestoreData.data && isClientCachedDataUsable(firestoreData.data)) {
         return firestoreData.data as PersonNameData;
@@ -144,7 +144,7 @@ export async function cacheNameData(nameData: PersonNameData): Promise<void> {
       {
         name: formatDisplayName(nameData.name),
         data: nameData,
-        schemaVersion: 3,
+        schemaVersion: 4,
         lastSearchedAt: new Date().toISOString(),
       },
       { merge: true }

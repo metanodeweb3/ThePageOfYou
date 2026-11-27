@@ -1,57 +1,32 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, ArrowRight, BookMarked } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Search, ArrowRight, BookMarked, Sparkles } from 'lucide-react';
 import {
   DirectoryNameEntry,
   formatDisplayName,
   getCuratedDirectoryNames,
   getNameSlug,
+  isValidNameInput,
 } from '../utils/seo';
 
 interface NameDirectoryProps {
   onNavigate: (path: string) => void;
+  onSearchName?: (name: string) => void;
+  onSearchYourName?: () => void;
 }
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
-export const NameDirectory: React.FC<NameDirectoryProps> = ({ onNavigate }) => {
+export const NameDirectory: React.FC<NameDirectoryProps> = ({
+  onNavigate,
+  onSearchName,
+  onSearchYourName,
+}) => {
   const [filterText, setFilterText] = useState('');
   const [activeLetter, setActiveLetter] = useState<string>('ALL');
-  const [extraNames, setExtraNames] = useState<string[]>([]);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/directory')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (active && json && Array.isArray(json.extraCached)) {
-          setExtraNames(json.extraCached);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const allEntries: DirectoryNameEntry[] = useMemo(() => {
-    const curated = getCuratedDirectoryNames();
-    const seen = new Set(curated.map((c) => c.slug));
-    const extras: DirectoryNameEntry[] = extraNames
-      .filter((name) => {
-        const slug = name.trim().toLowerCase();
-        if (!slug || seen.has(slug)) return false;
-        seen.add(slug);
-        return true;
-      })
-      .map((name) => ({
-        slug: name.trim().toLowerCase(),
-        name: formatDisplayName(name),
-        meaning: 'Etymology, cultural references & bespoke acrostic poem',
-        origin: 'Community Archived Name',
-        referenceCount: 0,
-      }));
-    return [...curated, ...extras].sort((a, b) => a.name.localeCompare(b.name));
-  }, [extraNames]);
+    return getCuratedDirectoryNames();
+  }, []);
 
   const availableLetters = useMemo(() => {
     const set = new Set<string>();
@@ -94,20 +69,20 @@ export const NameDirectory: React.FC<NameDirectoryProps> = ({ onNavigate }) => {
           Home
         </a>
         <span>/</span>
-        <span className="text-stone-700 font-medium">Browse Names A–Z</span>
+        <span className="text-stone-700 font-medium">Browse Curated Names A–Z</span>
       </nav>
 
       {/* Directory Header */}
       <div className="bg-white rounded-2xl border border-stone-200/80 p-6 sm:p-8 shadow-xs">
         <div className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-amber-800 mb-2">
           <BookMarked className="w-3.5 h-3.5" />
-          <span>A–Z Cultural Index</span>
+          <span>Curated A–Z Cultural Index</span>
         </div>
         <h1 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-stone-900 tracking-tight">
-          Name Etymology &amp; Cultural Archive Directory
+          Curated Name Etymology &amp; Cultural Archive
         </h1>
         <p className="text-sm text-stone-600 mt-2 max-w-2xl leading-relaxed">
-          Browse our archive of verified name etymologies, origins, custom acrostic poems, and appearances across books, songs, films, video games, and fine art.
+          Browse our curated archive of verified name etymologies, origins, custom acrostic poems, and appearances across books, songs, films, video games, and fine art — or search any name in the world from the homepage.
         </p>
 
         {/* Instant Zero-API Filter Input */}
@@ -137,7 +112,7 @@ export const NameDirectory: React.FC<NameDirectoryProps> = ({ onNavigate }) => {
                 : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
             }`}
           >
-            All ({allEntries.length})
+            All
           </button>
           {ALPHABET.map((letter) => {
             const hasNames = availableLetters.has(letter);
@@ -195,20 +170,74 @@ export const NameDirectory: React.FC<NameDirectoryProps> = ({ onNavigate }) => {
           })}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-stone-200/80 p-8 text-center">
-          <p className="text-sm text-stone-600">
-            No archived names match &ldquo;{filterText}&rdquo; yet.
+        <div className="bg-white rounded-2xl border border-stone-200/80 p-8 text-center space-y-4">
+          <p className="text-sm sm:text-base font-serif text-stone-700">
+            No curated names match &ldquo;{filterText}&rdquo; yet.
           </p>
-          <a
-            href="/"
-            onClick={(e) => handleLinkClick(e, '/')}
-            className="inline-flex items-center gap-1.5 mt-3 text-sm font-semibold text-amber-900 hover:underline"
-          >
-            <span>Search any custom name on the homepage</span>
-            <ArrowRight className="w-4 h-4" />
-          </a>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            {onSearchName && filterText.trim() && isValidNameInput(filterText.trim()).valid ? (
+              <button
+                type="button"
+                onClick={() => onSearchName(filterText.trim())}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-100 text-xs sm:text-sm font-semibold shadow-sm transition-all active:scale-95 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>Search &ldquo;{formatDisplayName(filterText.trim())}&rdquo;</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <a
+                href="/"
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                  e.preventDefault();
+                  if (onSearchYourName) onSearchYourName();
+                  else onNavigate('/');
+                }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-100 text-xs sm:text-sm font-semibold shadow-sm transition-all"
+              >
+                <Search className="w-4 h-4 text-amber-300" />
+                <span>Search Your Name</span>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setFilterText('');
+                setActiveLetter('ALL');
+              }}
+              className="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+            >
+              Reset Filter
+            </button>
+          </div>
         </div>
       )}
+
+      {/* Invite Visitors to Search Any Name */}
+      <section className="rounded-2xl bg-amber-50/80 border border-amber-200 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h2 className="text-lg font-serif font-bold text-stone-900">
+            Don&rsquo;t see your name in the curated list?
+          </h2>
+          <p className="text-xs sm:text-sm text-stone-600">
+            Search any name in the world to uncover its etymology, verified cultural appearances, and custom acrostic poem.
+          </p>
+        </div>
+        <a
+          href="/"
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            if (onSearchYourName) onSearchYourName();
+            else onNavigate('/');
+          }}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-100 text-xs font-semibold shadow-xs transition-all shrink-0"
+        >
+          <Search className="w-3.5 h-3.5 text-amber-300" />
+          <span>Search Your Name</span>
+        </a>
+      </section>
     </div>
   );
 };

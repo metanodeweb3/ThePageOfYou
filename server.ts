@@ -23,11 +23,15 @@ import {
   renderAcrosticHubHtml,
   renderDirectoryHtml,
   renderHomeHtml,
+  renderMediaHubHtml,
   renderNameHtml,
   renderSongsHubHtml,
 } from './src/server/ssrRenderer';
+import { filterVerifiedCulturalItems, type VerifiableCategory } from './src/server/catalogVerifier';
 
 dotenv.config();
+
+const CURRENT_SCHEMA_VERSION = 4;
 
 const app = express();
 app.disable('x-powered-by');
@@ -259,7 +263,7 @@ function isCachedDataValid(data: any, searchName: string): boolean {
     }
   }
 
-  return totalValidItems >= 3;
+  return totalValidItems >= 1;
 }
 
 /**
@@ -298,7 +302,7 @@ async function resolveCachedOrCuratedName(rawName: string): Promise<{
       const docSnap = await getDoc(cacheDocRef);
       if (docSnap.exists()) {
         const fsData = docSnap.data();
-        const isFreshSchema = (fsData?.schemaVersion || 0) >= 3;
+        const isFreshSchema = (fsData?.schemaVersion || 0) >= CURRENT_SCHEMA_VERSION;
         if (fsData?.data && isFreshSchema && isCachedDataValid(fsData.data, cleanName)) {
           setInLookupCache(normalizedName, fsData.data);
           if (lowerName !== normalizedName) setInLookupCache(lowerName, fsData.data);
@@ -319,49 +323,14 @@ async function resolveCachedOrCuratedName(rawName: string): Promise<{
 }
 
 /**
- * Collects verified indexable names for sitemap.xml and /names directory.
+ * Collects strictly vetted curated names for sitemap.xml and /names directory.
+ * Custom user-searched names remain privately cached in name_cache for fast repeat
+ * loads, but are never auto-published into public directories or search sitemaps.
  */
 async function collectIndexableNames(): Promise<string[]> {
-  const namesMap = new Map<string, string>();
-
-  // 1. Curated given names (automatically excludes non-names like tomato/batman)
-  for (const entry of getCuratedDirectoryNames()) {
-    namesMap.set(normalizeText(entry.name), entry.name);
-  }
-
-  // 2. Validated cached names in server memory
-  for (const [key, entry] of lookupCache.entries()) {
-    const candidate = entry?.data?.name || key;
-    if (isIndexableName(candidate)) {
-      const norm = normalizeText(candidate);
-      if (!namesMap.has(norm)) {
-        namesMap.set(norm, formatDisplayName(candidate));
-      }
-    }
-  }
-
-  // 3. Validated cached names from Firestore popular_names
-  const db = getFirestoreDb();
-  if (db) {
-    try {
-      const { collection, getDocs, limit, query } = await import('firebase/firestore');
-      const popQ = query(collection(db, 'popular_names'), limit(250));
-      const popSnap = await getDocs(popQ);
-      popSnap.forEach((d: any) => {
-        const candidate = d.data()?.name || d.id;
-        if (candidate && isIndexableName(candidate)) {
-          const norm = normalizeText(candidate);
-          if (!namesMap.has(norm)) {
-            namesMap.set(norm, formatDisplayName(candidate));
-          }
-        }
-      });
-    } catch (fsErr) {
-      console.warn('Directory/Sitemap Firestore query notice:', fsErr);
-    }
-  }
-
-  return Array.from(namesMap.values()).sort((a, b) => a.localeCompare(b));
+  return getCuratedDirectoryNames()
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 // Direct route for robots.txt (explicitly allows /og/ PNG cards, disallows /api/)
@@ -398,19 +367,21 @@ app.get('/sitemap.xml', async (_req, res) => {
     xml += `  </url>\n`;
 
     // Thematic SEO Hubs
-    xml += `  <url>\n`;
-    xml += `    <loc>${SITE_URL}/songs-with-names</loc>\n`;
-    xml += `    <lastmod>${today}</lastmod>\n`;
-    xml += `    <changefreq>weekly</changefreq>\n`;
-    xml += `    <priority>0.9</priority>\n`;
-    xml += `  </url>\n`;
-
-    xml += `  <url>\n`;
-    xml += `    <loc>${SITE_URL}/acrostic-name-poems</loc>\n`;
-    xml += `    <lastmod>${today}</lastmod>\n`;
-    xml += `    <changefreq>weekly</changefreq>\n`;
-    xml += `    <priority>0.9</priority>\n`;
-    xml += `  </url>\n`;
+    for (const hubPath of [
+      '/books',
+      '/songs-with-names',
+      '/film-and-tv',
+      '/video-games',
+      '/fine-art',
+      '/acrostic-name-poems',
+    ]) {
+      xml += `  <url>\n`;
+      xml += `    <loc>${SITE_URL}${hubPath}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>weekly</changefreq>\n`;
+      xml += `    <priority>0.9</priority>\n`;
+      xml += `  </url>\n`;
+    }
 
     // Individual verified name pages
     for (const displayName of indexableNames) {
@@ -481,15 +452,12 @@ app.get(['/api/og-image', '/api/og-image/:nameSlug'], (req, res) => {
   return res.redirect(301, `/og/${getNameSlug(rawSlug)}.png`);
 });
 
-// Read-only Directory API for SPA navigation (zero Gemini calls)
+// Read-only Directory API for SPA navigation (strictly curated, zero Gemini calls)
 app.get('/api/directory', async (_req, res) => {
   try {
     const curated = getCuratedDirectoryNames();
-    const indexableNames = await collectIndexableNames();
-    const curatedSet = new Set(curated.map((c) => normalizeText(c.name)));
-    const extraCached = indexableNames.filter((n) => !curatedSet.has(normalizeText(n)));
     res.setHeader('Cache-Control', 'public, max-age=300');
-    return res.json({ curated, extraCached });
+    return res.json({ curated, extraCached: [] });
   } catch (err) {
     console.error('Failed loading directory API:', err);
     return res.status(500).json({ error: 'Failed to load directory' });
@@ -521,7 +489,7 @@ app.post('/api/lookup', async (req, res) => {
           name: cleanName,
           searchCount: increment(1),
           lastSearchedAt: new Date().toISOString(),
-          schemaVersion: 3,
+          schemaVersion: CURRENT_SCHEMA_VERSION,
         },
         { merge: true }
       ).catch(() => {});
@@ -604,12 +572,14 @@ app.post('/api/lookup', async (req, res) => {
     try {
       const prompt = `Cultural historian for "The Page of You". Return strict JSON for the name "${cleanName}".
 
-GOAL: Provide 2-3 verifiable, authentic entries per category (books, songs, movies, games, art) where genuinely available (never fabricate).
+GOAL: Provide UP TO 2-3 widely known, commercially released, verifiable entries per category (books, songs, movies, games, art) ONLY where genuinely available.
 VALID CONNECTIONS FOR "${cleanName}":
-- Notable characters, historical figures, authors, actors, or artists named "${cleanName}"
-- Real books, songs, films/TV, video games, or artworks explicitly featuring "${cleanName}" in title, lyrics, dialogue, lore, or creator.
-STRICT RULES:
-- Real, verifiable works only. Never invent titles or quotes.
+- Notable real-world characters, historical figures, authors, actors, or artists named "${cleanName}"
+- Real, mainstream books, songs, films/TV, commercial video games, or recognized museum artworks explicitly featuring "${cleanName}" in title, lyrics, dialogue, lore, or creator.
+STRICT ANTI-HALLUCINATION RULES:
+- Real, commercially published, verifiable works ONLY. Never invent titles, studios, years, or quotes.
+- CRITICAL: If you are NOT 100% certain of real, widely known works for a category, return an empty array [] for that category. Returning [] is strictly preferred over guessing, stretching, or inventing.
+- NEVER invent obscure browser/Flash/casual portal games (e.g., CrazyGames, Poki, Big Fish Games, Miniclip) or self-published works.
 - Never confuse "${cleanName}" with similar-sounding different names.
 ETYMOLOGY & ACROSTIC:
 - origin: concise, historically accurate linguistic roots (e.g. "Old French / Greek").
@@ -728,6 +698,7 @@ ETYMOLOGY & ACROSTIC:
             model: modelName,
             contents: prompt,
             config: {
+              temperature: 0,
               responseMimeType: 'application/json',
               responseSchema,
               maxOutputTokens: 1800,
@@ -769,28 +740,36 @@ ETYMOLOGY & ACROSTIC:
       }
 
       if (parsedData) {
-        const ensureIdsAndFilter = (arr: any[], category: string) => {
+        const ensureIdsAndVerify = async (arr: any[], category: VerifiableCategory) => {
           if (!Array.isArray(arr)) return [];
-          return arr
-            .filter((item) => isValidCulturalItem(item, cleanName))
-            .map((item, idx) => ({
-              ...item,
-              id: item.id || `${normalizedName}-${category}-${idx + 1}-${Date.now().toString(36)}`,
-            }));
+          const structurallyValid = arr.filter((item) => isValidCulturalItem(item, cleanName));
+          const verified = await filterVerifiedCulturalItems(structurallyValid, category);
+          return verified.map((item, idx) => ({
+            ...item,
+            id: item.id || `${normalizedName}-${category}-${idx + 1}-${Date.now().toString(36)}`,
+          }));
         };
 
+        const [books, songs, movies, games, art] = await Promise.all([
+          ensureIdsAndVerify(parsedData.books, 'books'),
+          ensureIdsAndVerify(parsedData.songs, 'songs'),
+          ensureIdsAndVerify(parsedData.movies, 'movies'),
+          ensureIdsAndVerify(parsedData.games, 'games'),
+          ensureIdsAndVerify(parsedData.art, 'art'),
+        ]);
+
         parsedData.name = cleanName;
-        parsedData.books = ensureIdsAndFilter(parsedData.books, 'books');
-        parsedData.songs = ensureIdsAndFilter(parsedData.songs, 'songs');
-        parsedData.movies = ensureIdsAndFilter(parsedData.movies, 'movies');
-        parsedData.games = ensureIdsAndFilter(parsedData.games, 'games');
-        parsedData.art = ensureIdsAndFilter(parsedData.art, 'art');
+        parsedData.books = books;
+        parsedData.songs = songs;
+        parsedData.movies = movies;
+        parsedData.games = games;
+        parsedData.art = art;
 
         // Cache in memory immediately to eliminate repeat API calls
         setInLookupCache(normalizedName, parsedData);
         if (lowerName !== normalizedName) setInLookupCache(lowerName, parsedData);
 
-        // Persist in Firestore under canonical normalizedName key with schemaVersion: 3
+        // Persist in Firestore under canonical normalizedName key with schemaVersion: 4 (catalog-verified)
         const db = getFirestoreDb();
         if (db && isCachedDataValid(parsedData, cleanName)) {
           try {
@@ -803,7 +782,7 @@ ETYMOLOGY & ACROSTIC:
                 searchCount: 1,
                 lastSearchedAt: new Date().toISOString(),
                 createdAt: new Date().toISOString(),
-                schemaVersion: 3,
+                schemaVersion: CURRENT_SCHEMA_VERSION,
               },
               { merge: true }
             ).catch((e) => console.warn('Firestore save name_cache error:', e));
@@ -924,7 +903,7 @@ app.post('/api/enrich-category', async (req, res) => {
   let responseSchema: any = null;
 
   if (targetCategory === 'books') {
-    categoryInstruction = `Find 2 NEW, verifiable books connecting to "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find UP TO 2 additional widely known, commercially published books connecting to "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -946,7 +925,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['books'],
     };
   } else if (targetCategory === 'songs') {
-    categoryInstruction = `Find 2 NEW, verifiable songs mentioning or by "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find UP TO 2 additional widely known, commercially released songs mentioning or by "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -968,7 +947,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['songs'],
     };
   } else if (targetCategory === 'movies') {
-    categoryInstruction = `Find 2 NEW, verifiable film/TV references for "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find UP TO 2 additional widely known, commercially released film/TV references for "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -990,7 +969,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['movies'],
     };
   } else if (targetCategory === 'games') {
-    categoryInstruction = `Find 2 NEW, verifiable video game references for "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find UP TO 2 additional widely known, commercially released PC/console video games connecting to "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -1012,7 +991,7 @@ app.post('/api/enrich-category', async (req, res) => {
       required: ['games'],
     };
   } else if (targetCategory === 'art') {
-    categoryInstruction = `Find 2 NEW, verifiable fine art works or artists for "${cleanName}" not in: [${existingTitlesList}].`;
+    categoryInstruction = `Find UP TO 2 additional widely known, museum-recognized fine art works or artists for "${cleanName}" not in: [${existingTitlesList}].`;
     responseSchema = {
       type: Type.OBJECT,
       properties: {
@@ -1038,8 +1017,10 @@ app.post('/api/enrich-category', async (req, res) => {
   }
 
   const prompt = `Cultural archivist for "The Page of You". For "${cleanName}": ${categoryInstruction}
-Rules:
-- Real, verifiable works only. Never invent titles or quotes.
+STRICT ANTI-HALLUCINATION RULES:
+- Real, mainstream, commercially released works ONLY. Never invent titles, developers, years, or quotes.
+- CRITICAL: If you are NOT 100% certain of additional real, commercially published works not already listed, return an empty array []! Returning [] is strictly preferred over guessing or inventing.
+- NEVER invent obscure browser/Flash/casual portal titles (e.g., CrazyGames, Poki, Big Fish Games, Miniclip) or unverifiable works.
 - Must genuinely connect to "${cleanName}" (never similar-sounding different names).
 - Do NOT repeat any title already listed in: [${existingTitlesList}].
 - Always explicitly mention "${cleanName}" in the title, quote, lyricsQuote, character, or context field so the connection is clear.
@@ -1070,6 +1051,7 @@ Rules:
             model,
             contents: prompt,
             config: {
+              temperature: 0,
               responseMimeType: 'application/json',
               responseSchema,
               maxOutputTokens: 900,
@@ -1117,11 +1099,12 @@ Rules:
       }
 
       let addedCount = 0;
-      const processEnrichedCategory = (cat: string) => {
-        if (Array.isArray(enrichedData[cat])) {
-          const seenNew = new Set<string>();
-          enrichedData[cat] = enrichedData[cat]
-            .filter((item: any) => {
+      const verifiableCategories: VerifiableCategory[] = ['books', 'songs', 'movies', 'games', 'art'];
+      await Promise.all(
+        verifiableCategories.map(async (cat) => {
+          if (Array.isArray(enrichedData[cat])) {
+            const seenNew = new Set<string>();
+            const candidates = enrichedData[cat].filter((item: any) => {
               if (!isValidCulturalItem(item, cleanName)) return false;
               const titleKey = String(item?.title || '').trim().toLowerCase();
               if (!titleKey || existingTitleSet.has(titleKey) || seenNew.has(titleKey)) {
@@ -1129,22 +1112,27 @@ Rules:
               }
               seenNew.add(titleKey);
               return true;
-            })
-            .map((item: any, idx: number) => ({
+            });
+
+            // Fail-closed real-world catalog verification (drops any hallucinated title)
+            const verifiedItems = await filterVerifiedCulturalItems(candidates, cat);
+
+            enrichedData[cat] = verifiedItems.map((item: any, idx: number) => ({
               ...item,
               id: item.id || `${normalizedName}-${cat}-enriched-${idx + 1}-${Date.now().toString(36)}`,
             }));
-          addedCount += enrichedData[cat].length;
-        }
-      };
-      ['books', 'songs', 'movies', 'games', 'art'].forEach(processEnrichedCategory);
+            addedCount += enrichedData[cat].length;
+          }
+        })
+      );
 
       if (addedCount === 0) {
         return {
           success: false,
+          exhausted: true,
           category: targetCategory,
           items: [],
-          message: 'All top verified references for this category are already loaded.',
+          message: 'All verified real-world references for this category are already loaded.',
         };
       }
 
@@ -1185,7 +1173,7 @@ Rules:
               {
                 name: cleanName,
                 data: merged,
-                schemaVersion: 3,
+                schemaVersion: CURRENT_SCHEMA_VERSION,
                 lastSearchedAt: new Date().toISOString(),
                 ...(docSnap.exists() ? {} : { createdAt: new Date().toISOString(), searchCount: 1 }),
               },
@@ -1288,12 +1276,11 @@ async function startServer() {
     }
   });
 
-  // Real SSR Browse Names A-Z Directory (/names)
+  // Real SSR Browse Curated Names A-Z Directory (/names)
   app.get('/names', async (req, res, next) => {
     try {
-      const indexableNames = await collectIndexableNames();
       const templateHtml = await loadTemplateHtml(req.originalUrl);
-      const renderedHtml = renderDirectoryHtml(templateHtml, indexableNames);
+      const renderedHtml = renderDirectoryHtml(templateHtml);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
       return res.send(renderedHtml);
@@ -1303,7 +1290,29 @@ async function startServer() {
     }
   });
 
-  // Real SSR Thematic Hub: Songs With Names (/songs-with-names)
+  // Real SSR Thematic Hubs: Books, Film & TV, Video Games, Fine Art
+  const mediaHubRoutes: Array<{ path: string; category: 'books' | 'movies' | 'games' | 'art' }> = [
+    { path: '/books', category: 'books' },
+    { path: '/film-and-tv', category: 'movies' },
+    { path: '/video-games', category: 'games' },
+    { path: '/fine-art', category: 'art' },
+  ];
+  for (const hub of mediaHubRoutes) {
+    app.get(hub.path, async (req, res, next) => {
+      try {
+        const templateHtml = await loadTemplateHtml(req.originalUrl);
+        const renderedHtml = renderMediaHubHtml(templateHtml, hub.category);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+        return res.send(renderedHtml);
+      } catch (err) {
+        console.error(`Error rendering ${hub.category} hub page:`, err);
+        return next();
+      }
+    });
+  }
+
+  // Real SSR Thematic Hub: Songs & Lyrics (/songs-with-names)
   app.get('/songs-with-names', async (req, res, next) => {
     try {
       const templateHtml = await loadTemplateHtml(req.originalUrl);

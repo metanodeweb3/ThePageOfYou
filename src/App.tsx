@@ -13,8 +13,12 @@ import { POPULAR_NAMES_DATA, findFallbackName } from './data/fallbackData';
 import { fetchPopularNames, trackNameSearch, getCachedNameData, cacheNameData } from './lib/firebase';
 import {
   buildAcrosticHubSeo,
+  buildArtHubSeo,
+  buildBooksHubSeo,
   buildDirectorySeo,
+  buildGamesHubSeo,
   buildHomeSeo,
+  buildMoviesHubSeo,
   buildNameSeo,
   buildSongsHubSeo,
   formatDisplayName,
@@ -36,6 +40,9 @@ const SongsWithNamesHub = lazy(() =>
 const AcrosticPoemsHub = lazy(() =>
   import('./components/AcrosticPoemsHub').then((m) => ({ default: m.AcrosticPoemsHub }))
 );
+const MediaHub = lazy(() =>
+  import('./components/MediaHub').then((m) => ({ default: m.MediaHub }))
+);
 const ShareCardModal = lazy(() =>
   import('./components/ShareCardModal').then((m) => ({ default: m.ShareCardModal }))
 );
@@ -54,7 +61,16 @@ declare global {
   }
 }
 
-type AppView = 'home' | 'name' | 'directory' | 'songs-hub' | 'acrostic-hub';
+type AppView =
+  | 'home'
+  | 'name'
+  | 'directory'
+  | 'books-hub'
+  | 'songs-hub'
+  | 'movies-hub'
+  | 'games-hub'
+  | 'art-hub'
+  | 'acrostic-hub';
 
 function parseLocationRoute(): { view: AppView; name?: string } {
   if (typeof window === 'undefined') return { view: 'home' };
@@ -64,8 +80,24 @@ function parseLocationRoute(): { view: AppView; name?: string } {
     return { view: 'directory' };
   }
 
+  if (pathname === '/books') {
+    return { view: 'books-hub' };
+  }
+
   if (pathname === '/songs-with-names') {
     return { view: 'songs-hub' };
+  }
+
+  if (pathname === '/film-and-tv') {
+    return { view: 'movies-hub' };
+  }
+
+  if (pathname === '/video-games') {
+    return { view: 'games-hub' };
+  }
+
+  if (pathname === '/fine-art') {
+    return { view: 'art-hub' };
   }
 
   if (pathname === '/acrostic-name-poems') {
@@ -154,9 +186,11 @@ export function App() {
     type: 'success' | 'info' | 'error';
     message: string;
   } | null>(null);
+  const [exhaustedCategories, setExhaustedCategories] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setEnrichStatus(null);
+    setExhaustedCategories({});
   }, [currentName, view]);
   const [isCoffeeOpen, setIsCoffeeOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
@@ -202,8 +236,16 @@ export function App() {
       syncDocumentHead(buildHomeSeo());
     } else if (view === 'directory') {
       syncDocumentHead(buildDirectorySeo());
+    } else if (view === 'books-hub') {
+      syncDocumentHead(buildBooksHubSeo());
     } else if (view === 'songs-hub') {
       syncDocumentHead(buildSongsHubSeo());
+    } else if (view === 'movies-hub') {
+      syncDocumentHead(buildMoviesHubSeo());
+    } else if (view === 'games-hub') {
+      syncDocumentHead(buildGamesHubSeo());
+    } else if (view === 'art-hub') {
+      syncDocumentHead(buildArtHubSeo());
     } else if (view === 'acrostic-hub') {
       syncDocumentHead(buildAcrosticHubSeo());
     } else if (view === 'name' && nameData) {
@@ -398,31 +440,22 @@ export function App() {
         return;
       }
 
-      if (cleanPath === '/names') {
-        handleCancelSearch();
-        setView('directory');
-        if (window.location.pathname !== '/names') {
-          window.history.pushState({ view: 'directory' }, '', '/names');
-        }
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
+      const staticHubMap: Record<string, AppView> = {
+        '/names': 'directory',
+        '/books': 'books-hub',
+        '/songs-with-names': 'songs-hub',
+        '/film-and-tv': 'movies-hub',
+        '/video-games': 'games-hub',
+        '/fine-art': 'art-hub',
+        '/acrostic-name-poems': 'acrostic-hub',
+      };
 
-      if (cleanPath === '/songs-with-names') {
+      const targetHubView = staticHubMap[cleanPath];
+      if (targetHubView) {
         handleCancelSearch();
-        setView('songs-hub');
-        if (window.location.pathname !== '/songs-with-names') {
-          window.history.pushState({ view: 'songs-hub' }, '', '/songs-with-names');
-        }
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
-
-      if (cleanPath === '/acrostic-name-poems') {
-        handleCancelSearch();
-        setView('acrostic-hub');
-        if (window.location.pathname !== '/acrostic-name-poems') {
-          window.history.pushState({ view: 'acrostic-hub' }, '', '/acrostic-name-poems');
+        setView(targetHubView);
+        if (window.location.pathname !== cleanPath) {
+          window.history.pushState({ view: targetHubView }, '', cleanPath);
         }
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
@@ -463,17 +496,11 @@ export function App() {
         handleCancelSearch();
         setView('home');
         setCurrentName('');
-      } else if (nextRoute.view === 'directory') {
-        handleCancelSearch();
-        setView('directory');
-      } else if (nextRoute.view === 'songs-hub') {
-        handleCancelSearch();
-        setView('songs-hub');
-      } else if (nextRoute.view === 'acrostic-hub') {
-        handleCancelSearch();
-        setView('acrostic-hub');
       } else if (nextRoute.view === 'name' && nextRoute.name) {
         handleSearchName(nextRoute.name, { pushHistory: false });
+      } else {
+        handleCancelSearch();
+        setView(nextRoute.view);
       }
     };
 
@@ -600,23 +627,27 @@ export function App() {
           setEnrichStatus({
             category,
             type: 'success',
-            message: `Added ${reportedAdded} new ${categoryLabels[category]} ${reportedAdded === 1 ? 'entry' : 'entries'} for ${nameData.name}.`,
+            message: `Added ${reportedAdded} new verified ${categoryLabels[category]} ${reportedAdded === 1 ? 'entry' : 'entries'} for ${nameData.name}.`,
           });
         } else {
+          setExhaustedCategories((prev) => ({ ...prev, [category]: true }));
           setEnrichStatus({
             category,
             type: 'info',
-            message: `No new ${categoryLabels[category]} entries were found beyond what is already listed.`,
+            message: `All verified ${categoryLabels[category]} entries for ${nameData.name} are already loaded.`,
           });
         }
       } else {
+        if (result?.exhausted) {
+          setExhaustedCategories((prev) => ({ ...prev, [category]: true }));
+        }
         setEnrichStatus({
           category,
           type: 'info',
           message:
             result?.message ||
             result?.error ||
-            `No additional verified ${categoryLabels[category]} entries were found right now.`,
+            `All verified ${categoryLabels[category]} entries are already loaded.`,
         });
       }
     } catch (err) {
@@ -638,11 +669,35 @@ export function App() {
     navigateTo(path);
   };
 
+  const handleSearchYourName = useCallback(() => {
+    const focusSearchInput = () => {
+      const section = document.getElementById('name-search-section');
+      const input = document.getElementById('input-name-search') as HTMLInputElement | null;
+      if (section) {
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (input) {
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      if (input) {
+        input.focus({ preventScroll: true });
+        input.select();
+      }
+    };
+
+    if (view === 'home' || view === 'name') {
+      focusSearchInput();
+    } else {
+      navigateTo('/');
+      setTimeout(focusSearchInput, 120);
+    }
+  }, [view, navigateTo]);
+
   return (
     <div className="min-h-screen bg-[#faf8f5] text-stone-900 font-sans flex flex-col justify-between selection:bg-amber-200 selection:text-stone-900">
       <Header
         activeView={view}
         onNavigate={navigateTo}
+        onSearchYourName={handleSearchYourName}
         onOpenCoffee={() => setIsCoffeeOpen(true)}
         onOpenShare={view === 'name' && nameData ? () => setIsShareOpen(true) : undefined}
       />
@@ -673,11 +728,65 @@ export function App() {
             </div>
           }
         >
-          {view === 'directory' && <NameDirectory onNavigate={navigateTo} />}
+          {view === 'directory' && (
+            <NameDirectory
+              onNavigate={navigateTo}
+              onSearchName={(n) => handleSearchName(n, { pushHistory: true })}
+              onSearchYourName={handleSearchYourName}
+            />
+          )}
 
-          {view === 'songs-hub' && <SongsWithNamesHub onNavigate={navigateTo} />}
+          {view === 'books-hub' && (
+            <MediaHub
+              category="books"
+              onNavigate={navigateTo}
+              onSearchName={(n) => handleSearchName(n, { pushHistory: true })}
+              onSearchYourName={handleSearchYourName}
+            />
+          )}
 
-          {view === 'acrostic-hub' && <AcrosticPoemsHub onNavigate={navigateTo} />}
+          {view === 'songs-hub' && (
+            <SongsWithNamesHub
+              onNavigate={navigateTo}
+              onSearchName={(n) => handleSearchName(n, { pushHistory: true })}
+              onSearchYourName={handleSearchYourName}
+            />
+          )}
+
+          {view === 'movies-hub' && (
+            <MediaHub
+              category="movies"
+              onNavigate={navigateTo}
+              onSearchName={(n) => handleSearchName(n, { pushHistory: true })}
+              onSearchYourName={handleSearchYourName}
+            />
+          )}
+
+          {view === 'games-hub' && (
+            <MediaHub
+              category="games"
+              onNavigate={navigateTo}
+              onSearchName={(n) => handleSearchName(n, { pushHistory: true })}
+              onSearchYourName={handleSearchYourName}
+            />
+          )}
+
+          {view === 'art-hub' && (
+            <MediaHub
+              category="art"
+              onNavigate={navigateTo}
+              onSearchName={(n) => handleSearchName(n, { pushHistory: true })}
+              onSearchYourName={handleSearchYourName}
+            />
+          )}
+
+          {view === 'acrostic-hub' && (
+            <AcrosticPoemsHub
+              onNavigate={navigateTo}
+              onSearchName={(n) => handleSearchName(n, { pushHistory: true })}
+              onSearchYourName={handleSearchYourName}
+            />
+          )}
         </Suspense>
 
         {view === 'name' && nameData && (
@@ -713,6 +822,7 @@ export function App() {
               isEnriching={isEnriching}
               enrichingCategory={enrichingCategory}
               enrichStatus={enrichStatus}
+              exhaustedCategories={exhaustedCategories}
               onDismissEnrichStatus={() => setEnrichStatus(null)}
             />
 
@@ -783,13 +893,33 @@ export function App() {
             Discover the linguistic etymology, historical origins, and custom acrostic poetry tied to your name. Explore authentic book quotes, famous song lyrics, cinema dialogue, video game lore, and fine art celebrating the story behind every name.
           </p>
 
-          <div className="flex items-center flex-wrap justify-center gap-4 sm:gap-6 text-xs sm:text-sm font-medium pt-1">
+          <div className="flex items-center flex-wrap justify-center gap-3 sm:gap-5 text-xs sm:text-sm font-medium pt-1">
+            <a
+              href="/"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                handleSearchYourName();
+              }}
+              className="text-amber-300 hover:text-amber-100 transition-colors underline decoration-amber-500/70 underline-offset-4 font-semibold"
+            >
+              Search Your Name
+            </a>
+            <span className="text-stone-700 hidden sm:inline">&bull;</span>
             <a
               href="/names"
               onClick={(e) => handleFooterNav(e, '/names')}
               className="text-stone-200 hover:text-amber-200 transition-colors underline decoration-stone-600 underline-offset-4"
             >
-              Browse Names A–Z
+              Browse Curated Names A–Z
+            </a>
+            <span className="text-stone-700 hidden sm:inline">&bull;</span>
+            <a
+              href="/books"
+              onClick={(e) => handleFooterNav(e, '/books')}
+              className="text-amber-200 hover:text-amber-100 transition-colors underline decoration-amber-700 underline-offset-4"
+            >
+              Books
             </a>
             <span className="text-stone-700 hidden sm:inline">&bull;</span>
             <a
@@ -797,7 +927,31 @@ export function App() {
               onClick={(e) => handleFooterNav(e, '/songs-with-names')}
               className="text-emerald-300 hover:text-emerald-200 transition-colors underline decoration-emerald-700 underline-offset-4"
             >
-              Songs With Names
+              Songs
+            </a>
+            <span className="text-stone-700 hidden sm:inline">&bull;</span>
+            <a
+              href="/film-and-tv"
+              onClick={(e) => handleFooterNav(e, '/film-and-tv')}
+              className="text-sky-300 hover:text-sky-200 transition-colors underline decoration-sky-700 underline-offset-4"
+            >
+              Film &amp; TV
+            </a>
+            <span className="text-stone-700 hidden sm:inline">&bull;</span>
+            <a
+              href="/video-games"
+              onClick={(e) => handleFooterNav(e, '/video-games')}
+              className="text-violet-300 hover:text-violet-200 transition-colors underline decoration-violet-700 underline-offset-4"
+            >
+              Games
+            </a>
+            <span className="text-stone-700 hidden sm:inline">&bull;</span>
+            <a
+              href="/fine-art"
+              onClick={(e) => handleFooterNav(e, '/fine-art')}
+              className="text-rose-300 hover:text-rose-200 transition-colors underline decoration-rose-700 underline-offset-4"
+            >
+              Art
             </a>
             <span className="text-stone-700 hidden sm:inline">&bull;</span>
             <a
@@ -805,7 +959,7 @@ export function App() {
               onClick={(e) => handleFooterNav(e, '/acrostic-name-poems')}
               className="text-amber-200 hover:text-amber-100 transition-colors underline decoration-amber-700 underline-offset-4"
             >
-              Acrostic Name Poems
+              Acrostic Poems
             </a>
             <span className="text-stone-700 hidden sm:inline">&bull;</span>
             <button

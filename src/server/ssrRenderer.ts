@@ -4,20 +4,55 @@ import {
   SITE_URL,
   PageSeoMeta,
   buildAcrosticHubSeo,
+  buildArtHubSeo,
+  buildBooksHubSeo,
   buildDirectorySeo,
+  buildGamesHubSeo,
   buildHomeSeo,
+  buildMoviesHubSeo,
   buildNameSeo,
   buildSongsHubSeo,
   escapeHtml,
   formatDisplayName,
   getCuratedAcrosticsIndex,
+  getCuratedArtIndex,
+  getCuratedBooksIndex,
   getCuratedDirectoryNames,
+  getCuratedGamesIndex,
+  getCuratedMoviesIndex,
   getCuratedSongsIndex,
   getNameSlug,
   getRelatedNames,
   stripOuterQuotes,
 } from '../utils/seo';
-import { getAmazonMusicUrl } from '../utils/amazon';
+import {
+  getAmazonArtUrl,
+  getAmazonBookUrl,
+  getAmazonGameUrl,
+  getAmazonMovieUrl,
+  getAmazonMusicUrl,
+} from '../utils/amazon';
+
+function renderSsrNav(activePath: string): string {
+  const links = [
+    { href: '/', label: 'Search Your Name', color: '#1c1917' },
+    { href: '/names', label: 'Names A&ndash;Z', color: '#92400e' },
+    { href: '/books', label: 'Books', color: '#b45309' },
+    { href: '/songs-with-names', label: 'Songs', color: '#065f46' },
+    { href: '/film-and-tv', label: 'Film &amp; TV', color: '#0369a1' },
+    { href: '/video-games', label: 'Games', color: '#6d28d9' },
+    { href: '/fine-art', label: 'Art', color: '#be123c' },
+    { href: '/acrostic-name-poems', label: 'Acrostic Poems', color: '#78350f' },
+  ];
+  return `<nav aria-label="Primary" style="margin-top:12px;">${links
+    .map(
+      (l) =>
+        `<a href="${l.href}" style="margin:0 8px;color:${l.color};font-size:14px;font-weight:${
+          activePath === l.href ? '700' : '600'
+        };">${l.label}</a>`
+    )
+    .join('')}</nav>`;
+}
 
 function applySeoHead(templateHtml: string, meta: PageSeoMeta, jsonLd: Record<string, any>): string {
   const safeTitle = escapeHtml(meta.title);
@@ -160,12 +195,7 @@ export function renderHomeHtml(templateHtml: string): string {
       <header style="border-bottom:1px solid #e7e5e4;padding:20px 16px;text-align:center;background:#fbf9f5;">
         <a href="/" style="font-size:36px;color:#1c1917;text-decoration:none;font-weight:700;">The Page of You</a>
         <p style="margin:6px 0 0 0;font-size:13px;color:#57534e;font-style:italic;">Personalised Name Etymology, Acrostic Poetry &amp; Cultural Archive</p>
-        <nav aria-label="Primary" style="margin-top:12px;">
-          <a href="/" style="margin:0 10px;color:#1c1917;font-size:14px;">Home</a>
-          <a href="/names" style="margin:0 10px;color:#92400e;font-size:14px;font-weight:600;">Browse Names A&ndash;Z</a>
-          <a href="/songs-with-names" style="margin:0 10px;color:#065f46;font-size:14px;font-weight:600;">Songs With Names</a>
-          <a href="/acrostic-name-poems" style="margin:0 10px;color:#78350f;font-size:14px;font-weight:600;">Acrostic Poems</a>
-        </nav>
+        ${renderSsrNav('/')}
       </header>
       <main style="max-width:960px;margin:0 auto;padding:32px 16px;">
         <section style="text-align:center;margin-bottom:36px;">
@@ -197,28 +227,9 @@ export function renderHomeHtml(templateHtml: string): string {
 /**
  * Renders full semantic SSR HTML for the Browse Names A–Z Directory (/names).
  */
-export function renderDirectoryHtml(templateHtml: string, extraNames: string[] = []): string {
+export function renderDirectoryHtml(templateHtml: string): string {
   const meta = buildDirectorySeo();
-  const curated = getCuratedDirectoryNames();
-  const seen = new Set(curated.map((c) => c.slug));
-
-  const combined = [
-    ...curated,
-    ...extraNames
-      .filter((name) => {
-        const slug = name.trim().toLowerCase();
-        if (!slug || seen.has(slug)) return false;
-        seen.add(slug);
-        return true;
-      })
-      .map((name) => ({
-        slug: name.trim().toLowerCase(),
-        name: formatDisplayName(name),
-        meaning: 'Etymology, cultural references & custom acrostic poem',
-        origin: 'Archived Name',
-        referenceCount: 0,
-      })),
-  ].sort((a, b) => a.name.localeCompare(b.name));
+  const combined = getCuratedDirectoryNames();
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -269,12 +280,7 @@ export function renderDirectoryHtml(templateHtml: string, extraNames: string[] =
     <div style="font-family:Georgia,serif;color:#1c1917;background:#faf8f5;min-height:100vh;">
       <header style="border-bottom:1px solid #e7e5e4;padding:20px 16px;text-align:center;background:#fbf9f5;">
         <a href="/" style="font-size:36px;color:#1c1917;text-decoration:none;font-weight:700;">The Page of You</a>
-        <nav aria-label="Primary" style="margin-top:10px;">
-          <a href="/" style="margin:0 10px;color:#1c1917;font-size:14px;">Home</a>
-          <a href="/names" style="margin:0 10px;color:#92400e;font-size:14px;font-weight:600;">Browse Names A&ndash;Z</a>
-          <a href="/songs-with-names" style="margin:0 10px;color:#065f46;font-size:14px;font-weight:600;">Songs With Names</a>
-          <a href="/acrostic-name-poems" style="margin:0 10px;color:#78350f;font-size:14px;font-weight:600;">Acrostic Poems</a>
-        </nav>
+        ${renderSsrNav('/names')}
       </header>
       <main style="max-width:960px;margin:0 auto;padding:32px 16px;">
         <nav aria-label="Breadcrumb" style="font-size:13px;color:#78716c;margin-bottom:16px;">
@@ -489,12 +495,7 @@ export function renderNameHtml(
     <div style="font-family:Georgia,serif;color:#1c1917;background:#faf8f5;min-height:100vh;">
       <header style="border-bottom:1px solid #e7e5e4;padding:20px 16px;text-align:center;background:#fbf9f5;">
         <a href="/" style="font-size:34px;color:#1c1917;text-decoration:none;font-weight:700;">The Page of You</a>
-        <nav aria-label="Primary" style="margin-top:8px;">
-          <a href="/" style="margin:0 10px;color:#1c1917;font-size:14px;">Home</a>
-          <a href="/names" style="margin:0 10px;color:#92400e;font-size:14px;font-weight:600;">Browse Names A&ndash;Z</a>
-          <a href="/songs-with-names" style="margin:0 10px;color:#065f46;font-size:14px;font-weight:600;">Songs With Names</a>
-          <a href="/acrostic-name-poems" style="margin:0 10px;color:#78350f;font-size:14px;font-weight:600;">Acrostic Poems</a>
-        </nav>
+        ${renderSsrNav('')}
       </header>
       <main style="max-width:860px;margin:0 auto;padding:28px 16px;line-height:1.6;">
         <nav aria-label="Breadcrumb" style="font-size:13px;color:#78716c;margin-bottom:14px;">
@@ -601,20 +602,15 @@ export function renderSongsHubHtml(templateHtml: string): string {
     <div style="font-family:Georgia,serif;color:#1c1917;background:#faf8f5;min-height:100vh;">
       <header style="border-bottom:1px solid #e7e5e4;padding:20px 16px;text-align:center;background:#fbf9f5;">
         <a href="/" style="font-size:34px;color:#1c1917;text-decoration:none;font-weight:700;">The Page of You</a>
-        <nav aria-label="Primary" style="margin-top:10px;">
-          <a href="/" style="margin:0 10px;color:#1c1917;font-size:14px;">Home</a>
-          <a href="/names" style="margin:0 10px;color:#92400e;font-size:14px;font-weight:600;">Browse Names A&ndash;Z</a>
-          <a href="/songs-with-names" style="margin:0 10px;color:#065f46;font-size:14px;font-weight:700;">Songs With Names</a>
-          <a href="/acrostic-name-poems" style="margin:0 10px;color:#78350f;font-size:14px;font-weight:600;">Acrostic Poems</a>
-        </nav>
+        ${renderSsrNav('/songs-with-names')}
       </header>
       <main style="max-width:960px;margin:0 auto;padding:32px 16px;line-height:1.6;">
         <nav aria-label="Breadcrumb" style="font-size:13px;color:#78716c;margin-bottom:14px;">
-          <a href="/" style="color:#065f46;">Home</a> &rsaquo; <span>Songs With Names</span>
+          <a href="/" style="color:#065f46;">Home</a> &rsaquo; <span>Songs &amp; Lyrics</span>
         </nav>
-        <h1 style="font-size:34px;line-height:1.2;margin:0 0 12px 0;">Songs With Names in the Title &amp; Lyrics</h1>
+        <h1 style="font-size:34px;line-height:1.2;margin:0 0 12px 0;">Iconic Songs &amp; Lyrics Featuring Names</h1>
         <p style="font-size:16px;color:#57534e;margin:0 0 24px 0;">
-          Explore ${songs.length} verified songs featuring names in the title and lyrics across our curated etymology archive. Click any name to uncover its historical origin, book quotes, film lines, and custom acrostic poem.
+          Explore curated songs featuring names in the title and lyrics across our etymology archive. Click any name to uncover its historical origin, book quotes, film lines, and custom acrostic poem.
         </p>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
           ${songCardsHtml}
@@ -693,12 +689,7 @@ export function renderAcrosticHubHtml(templateHtml: string): string {
     <div style="font-family:Georgia,serif;color:#1c1917;background:#faf8f5;min-height:100vh;">
       <header style="border-bottom:1px solid #e7e5e4;padding:20px 16px;text-align:center;background:#fbf9f5;">
         <a href="/" style="font-size:34px;color:#1c1917;text-decoration:none;font-weight:700;">The Page of You</a>
-        <nav aria-label="Primary" style="margin-top:10px;">
-          <a href="/" style="margin:0 10px;color:#1c1917;font-size:14px;">Home</a>
-          <a href="/names" style="margin:0 10px;color:#92400e;font-size:14px;font-weight:600;">Browse Names A&ndash;Z</a>
-          <a href="/songs-with-names" style="margin:0 10px;color:#065f46;font-size:14px;font-weight:600;">Songs With Names</a>
-          <a href="/acrostic-name-poems" style="margin:0 10px;color:#78350f;font-size:14px;font-weight:700;">Acrostic Poems</a>
-        </nav>
+        ${renderSsrNav('/acrostic-name-poems')}
       </header>
       <main style="max-width:960px;margin:0 auto;padding:32px 16px;line-height:1.6;">
         <nav aria-label="Breadcrumb" style="font-size:13px;color:#78716c;margin-bottom:14px;">
@@ -706,7 +697,7 @@ export function renderAcrosticHubHtml(templateHtml: string): string {
         </nav>
         <h1 style="font-size:34px;line-height:1.2;margin:0 0 12px 0;">Acrostic Name Poems &amp; Printable Verse Archive</h1>
         <p style="font-size:16px;color:#57534e;margin:0 0 24px 0;">
-          Browse ${poems.length} bespoke acrostic name poems inspired by each name&rsquo;s linguistic etymology and meaning. Preview archival themes and download printable keepsake cards for free.
+          Browse bespoke acrostic name poems inspired by each name&rsquo;s linguistic etymology and meaning. Preview archival themes and download printable keepsake cards for free.
         </p>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
           ${poemCardsHtml}
@@ -715,6 +706,173 @@ export function renderAcrosticHubHtml(templateHtml: string): string {
     </div>`;
 
   let html = applySeoHead(templateHtml, meta, jsonLd);
+  html = html.replace('<div id="root"></div>', `<div id="root">${ssrBody}</div>`);
+  return html;
+}
+
+/**
+ * Renders full semantic SSR HTML for Books (/books), Film & TV (/film-and-tv),
+ * Video Games (/video-games), and Fine Art (/fine-art) curated hubs.
+ */
+export function renderMediaHubHtml(
+  templateHtml: string,
+  category: 'books' | 'movies' | 'games' | 'art'
+): string {
+  const configMap = {
+    books: {
+      path: '/books',
+      meta: buildBooksHubSeo(),
+      breadcrumb: 'Books & Literature',
+      heading: 'Books & Literary Quotes Featuring Names',
+      intro:
+        'Discover celebrated novels, classic literature, and memorable passages tied to names across our curated archive.',
+      accent: '#b45309',
+      items: getCuratedBooksIndex().map((b) => ({
+        slug: b.slug,
+        name: b.name,
+        origin: b.origin,
+        title: b.title,
+        subtitle: `by ${b.author}`,
+        year: b.year,
+        quote: b.quote,
+        amazonUrl: getAmazonBookUrl(b.title, b.author),
+        amazonLabel: 'Amazon Books',
+      })),
+    },
+    movies: {
+      path: '/film-and-tv',
+      meta: buildMoviesHubSeo(),
+      breadcrumb: 'Film & TV',
+      heading: 'Iconic Film & TV Quotes Featuring Names',
+      intro:
+        'Explore unforgettable characters, classic cinema dialogue, and television moments connected to names across our curated archive.',
+      accent: '#0369a1',
+      items: getCuratedMoviesIndex().map((m) => ({
+        slug: m.slug,
+        name: m.name,
+        origin: m.origin,
+        title: m.title,
+        subtitle: [m.character, m.actor ? `(${m.actor})` : ''].filter(Boolean).join(' '),
+        year: m.year,
+        quote: m.quote,
+        amazonUrl: getAmazonMovieUrl(m.title),
+        amazonLabel: 'Prime Video',
+      })),
+    },
+    games: {
+      path: '/video-games',
+      meta: buildGamesHubSeo(),
+      breadcrumb: 'Video Games',
+      heading: 'Video Games & Gaming Lore Featuring Names',
+      intro:
+        'Browse celebrated PC and console video games, iconic characters, and gaming lore connected to names across our curated archive.',
+      accent: '#6d28d9',
+      items: getCuratedGamesIndex().map((g) => ({
+        slug: g.slug,
+        name: g.name,
+        origin: g.origin,
+        title: g.title,
+        subtitle: [g.character, g.developer].filter(Boolean).join(' • '),
+        year: g.year,
+        quote: g.quote,
+        amazonUrl: getAmazonGameUrl(g.title),
+        amazonLabel: 'Amazon Games',
+      })),
+    },
+    art: {
+      path: '/fine-art',
+      meta: buildArtHubSeo(),
+      breadcrumb: 'Fine Art',
+      heading: 'Fine Art & Famous Artists Connected to Names',
+      intro:
+        'Explore museum masterpieces, celebrated portraits, and renowned artists tied to names across our curated archive.',
+      accent: '#be123c',
+      items: getCuratedArtIndex().map((a) => ({
+        slug: a.slug,
+        name: a.name,
+        origin: a.origin,
+        title: a.title,
+        subtitle: `by ${a.artist}`,
+        year: a.year,
+        quote: a.quote,
+        amazonUrl: getAmazonArtUrl(a.title, a.artist),
+        amazonLabel: 'Art Prints',
+      })),
+    },
+  };
+
+  const cfg = configMap[category];
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'WebSite', name: SITE_NAME, url: `${SITE_URL}/` },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE_URL}/` },
+          { '@type': 'ListItem', position: 2, name: cfg.breadcrumb, item: `${SITE_URL}${cfg.path}` },
+        ],
+      },
+      {
+        '@type': 'CollectionPage',
+        name: cfg.heading,
+        url: `${SITE_URL}${cfg.path}`,
+        description: cfg.meta.description,
+        mainEntity: {
+          '@type': 'ItemList',
+          numberOfItems: cfg.items.length,
+          itemListElement: cfg.items.slice(0, 100).map((item, idx) => ({
+            '@type': 'ListItem',
+            position: idx + 1,
+            name: `${item.title} (${item.name})`,
+            url: `${SITE_URL}/name/${getNameSlug(item.name)}`,
+          })),
+        },
+      },
+    ],
+  };
+
+  const cardsHtml = cfg.items
+    .map(
+      (item) => `
+      <article style="background:#ffffff;border:1px solid #e7e5e4;border-radius:14px;padding:16px;">
+        <div style="font-size:12px;color:${cfg.accent};font-weight:700;margin-bottom:4px;">
+          <a href="/name/${escapeHtml(item.slug)}" style="color:${cfg.accent};text-decoration:none;">${escapeHtml(item.name)}</a>
+          &bull; ${escapeHtml(item.origin)}${item.year ? ` (${escapeHtml(item.year)})` : ''}
+        </div>
+        <h2 style="font-size:18px;margin:0 0 4px 0;color:#1c1917;">${escapeHtml(item.title)}${
+        item.subtitle ? ` &mdash; <span style="font-weight:400;color:#57534e;">${escapeHtml(item.subtitle)}</span>` : ''
+      }</h2>
+        <blockquote style="margin:8px 0;padding-left:12px;border-left:2px solid ${cfg.accent};font-style:italic;color:#44403c;">&ldquo;${escapeHtml(
+        stripOuterQuotes(item.quote)
+      )}&rdquo;</blockquote>
+        <div style="font-size:13px;margin-top:8px;">
+          <a href="/name/${escapeHtml(item.slug)}" style="color:#92400e;font-weight:600;text-decoration:underline;margin-right:14px;">Explore ${escapeHtml(item.name)}&rsquo;s Archive &rarr;</a>
+          <a href="${escapeHtml(item.amazonUrl)}" target="_blank" rel="sponsored noopener noreferrer" style="color:${cfg.accent};">${escapeHtml(item.amazonLabel)}</a>
+        </div>
+      </article>`
+    )
+    .join('');
+
+  const ssrBody = `
+    <div style="font-family:Georgia,serif;color:#1c1917;background:#faf8f5;min-height:100vh;">
+      <header style="border-bottom:1px solid #e7e5e4;padding:20px 16px;text-align:center;background:#fbf9f5;">
+        <a href="/" style="font-size:34px;color:#1c1917;text-decoration:none;font-weight:700;">The Page of You</a>
+        ${renderSsrNav(cfg.path)}
+      </header>
+      <main style="max-width:960px;margin:0 auto;padding:32px 16px;line-height:1.6;">
+        <nav aria-label="Breadcrumb" style="font-size:13px;color:#78716c;margin-bottom:14px;">
+          <a href="/" style="color:${cfg.accent};">Home</a> &rsaquo; <span>${escapeHtml(cfg.breadcrumb)}</span>
+        </nav>
+        <h1 style="font-size:34px;line-height:1.2;margin:0 0 12px 0;">${escapeHtml(cfg.heading)}</h1>
+        <p style="font-size:16px;color:#57534e;margin:0 0 24px 0;">${escapeHtml(cfg.intro)}</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
+          ${cardsHtml}
+        </div>
+      </main>
+    </div>`;
+
+  let html = applySeoHead(templateHtml, cfg.meta, jsonLd);
   html = html.replace('<div id="root"></div>', `<div id="root">${ssrBody}</div>`);
   return html;
 }
